@@ -1,0 +1,11 @@
+{
+  "domain": "renogy_gateway",
+  "name": "Renogy Gateway",
+  "codeowners": ["@troydack"],
+  "config_flow": true,
+  "documentation": "https://www.home-assistant.io/integrations/renogy_gateway",
+  "integration_type": "hub",
+  "iot_class": "cloud_push",
+  "loggers": ["homeassistant.components.renogy_gateway"],
+  "requirements": []
+}

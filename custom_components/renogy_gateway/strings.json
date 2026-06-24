@@ -1,0 +1,56 @@
+{
+  "config": {
+    "abort": {
+      "already_configured": "[%key:common::config_flow::abort::already_configured_device%]",
+      "reauth_successful": "[%key:common::config_flow::abort::reauth_successful%]"
+    },
+    "error": {
+      "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
+      "invalid_auth": "[%key:common::config_flow::error::invalid_auth%]",
+      "unknown": "[%key:common::config_flow::error::unknown%]"
+    },
+    "step": {
+      "reauth_confirm": {
+        "data": {
+          "email": "[%key:common::config_flow::data::email%]",
+          "password": "[%key:common::config_flow::data::password%]"
+        },
+        "description": "Enter your Renogy DC Home credentials to re-authenticate.",
+        "title": "Re-authenticate Renogy Gateway"
+      },
+      "select_gateway": {
+        "data": {
+          "gateway_id": "Gateway"
+        },
+        "data_description": {
+          "gateway_id": "The Renogy ONE Core gateway to integrate."
+        },
+        "description": "Multiple Renogy gateways were found. Select the one to add.",
+        "title": "Select Gateway"
+      },
+      "user": {
+        "data": {
+          "email": "[%key:common::config_flow::data::email%]",
+          "password": "[%key:common::config_flow::data::password%]"
+        },
+        "data_description": {
+          "email": "Your Renogy DC Home app account email address.",
+          "password": "Your Renogy DC Home app account password."
+        },
+        "description": "Enter your Renogy DC Home account credentials.",
+        "title": "Renogy DC Home"
+      }
+    }
+  },
+  "exceptions": {
+    "cannot_connect": {
+      "message": "Cannot connect to the Renogy gateway: {error}"
+    },
+    "invalid_auth": {
+      "message": "Authentication failed. Please check your credentials."
+    },
+    "update_failed": {
+      "message": "Failed to update data from Renogy gateway: {error}"
+    }
+  }
+}
