@@ -151,6 +151,11 @@ CONFIG_ENTRY_DATA = {
 }
 
 
+@pytest.fixture(autouse=True)
+def auto_enable_custom_integrations(enable_custom_integrations: None) -> None:
+    """Allow Home Assistant to load this custom integration during tests."""
+
+
 @pytest.fixture
 def mock_coordinator() -> MagicMock:
     """Return a mock RenogyCoordinator with pre-populated devices."""
