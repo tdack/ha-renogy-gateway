@@ -150,7 +150,7 @@ class RenogyCoordinator:
             async with sem_read:
                 try:
                     value = await self._rtm.read(field.sp)
-                except RenogyRTMError, TimeoutError:
+                except (RenogyRTMError, TimeoutError):
                     _LOGGER.debug("Initial read failed for %s", field.sp)
                     return
                 self._last_values[field.sp] = value
@@ -168,7 +168,7 @@ class RenogyCoordinator:
             async with sem_sub:
                 try:
                     await self._rtm.subscribe(sp)
-                except RenogyRTMError, TimeoutError:
+                except (RenogyRTMError, TimeoutError):
                     _LOGGER.debug("Subscribe failed for %s", sp)
 
         await asyncio.gather(*(_subscribe(f.sp) for f in fields_to_subscribe))

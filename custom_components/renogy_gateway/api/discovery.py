@@ -291,7 +291,7 @@ class RenogyDiscovery:
         sp = f"{did_str}/userdata_str.config"
         try:
             raw_value = await self._rtm.read(sp)
-        except RenogyRTMError, TimeoutError:
+        except (RenogyRTMError, TimeoutError):
             _LOGGER.debug("Could not read userdata_str.config for %s", did_str)
             return {}
 
@@ -313,7 +313,7 @@ class RenogyDiscovery:
 
             # The map has channel keys directly: {"dc_10a_1": "Bedroom Light", ...}
             return {k: v for k, v in inner.items() if isinstance(v, str) and v}
-        except json.JSONDecodeError, TypeError:
+        except (json.JSONDecodeError, TypeError):
             _LOGGER.debug("Failed to parse userdata_str.config for %s", did_str)
             return {}
 
@@ -329,7 +329,7 @@ class RenogyDiscovery:
         sp = f"{did_str}/driving_mode.ctrl_sp_blacklist"
         try:
             raw_value = await self._rtm.read(sp)
-        except RenogyRTMError, TimeoutError:
+        except (RenogyRTMError, TimeoutError):
             _LOGGER.debug("Could not read ctrl_sp_blacklist for %s", did_str)
             return frozenset()
 
@@ -366,7 +366,7 @@ def _to_float(v: Any) -> float | None:
     """Safely convert a value to float, returning None on failure."""
     try:
         return float(v)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return None
 
 

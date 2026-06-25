@@ -87,7 +87,7 @@ class RenogyNumber(RenogyBaseEntity, NumberEntity):
             return None
         try:
             return float(self._value)
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             return None
 
     async def async_set_native_value(self, value: float) -> None:

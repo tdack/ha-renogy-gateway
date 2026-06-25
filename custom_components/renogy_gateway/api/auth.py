@@ -97,7 +97,7 @@ class RenogyAuth:
         try:
             claims = _jwt_claims(self._tokens.access_token)
             return claims["exp"] - REFRESH_SKEW > time.time()
-        except KeyError, IndexError, ValueError:
+        except (KeyError, IndexError, ValueError):
             return False
 
     async def login(self, email: str, password: str) -> TokenSet:
