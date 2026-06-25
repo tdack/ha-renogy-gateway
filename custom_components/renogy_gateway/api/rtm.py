@@ -288,6 +288,17 @@ class RenogyRTM:
             {"op": 1, "sp": sp, "data": value, "ack": True, "qos": 1}
         )
 
+    async def run_scene(self, gateway_did: str, scene_id: int) -> dict:
+        """Execute a Manual scene (op-6 RPC `<gwDid>/scene.run {sceneId}`).
+
+        PROTOCOL.md §8.3: runs a batch of writes to physical circuits.
+        Returns the ACK frame (code=0 success, code=14 queued).
+        """
+        sp = f"{gateway_did}/scene.run"
+        return await self._call(
+            {"op": 6, "sp": sp, "data": {"sceneId": scene_id}, "ack": True, "qos": 1}
+        )
+
     # ------------------------------------------------------------------
     # Subscription management
     # ------------------------------------------------------------------

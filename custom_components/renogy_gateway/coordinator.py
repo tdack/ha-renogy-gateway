@@ -16,7 +16,7 @@ from homeassistant.helpers import aiohttp_client
 
 from .api.auth import RenogyAuth, RenogyAuthError, RenogyConnectionError
 from .api.discovery import RenogyDiscovery
-from .api.models import FieldSpec, RenogyDevice, TokenSet
+from .api.models import FieldSpec, RenogyDevice, SceneInfo, TokenSet
 from .api.rest import RenogyREST
 from .api.rtm import RenogyRTM, RenogyRTMError
 from .const import (
@@ -46,6 +46,7 @@ type RenogyConfigEntry = ConfigEntry[RenogyCoordinator]
 
 AvailabilityCallback = Callable[[bool], None]
 TelemetryCallback = Callable[[Any], None]
+SceneCallback = Callable[[], None]
 
 
 class RenogyCoordinator:
@@ -79,6 +80,11 @@ class RenogyCoordinator:
 
         # Discovered devices keyed by did_str
         self.devices: dict[str, RenogyDevice] = {}
+
+        # Scenes (Manual + Auto) keyed by scene id — fetched via REST, not
+        # the field-discovery pipeline (PROTOCOL.md §8).
+        self.scenes: dict[str, SceneInfo] = {}
+        self._scene_callbacks: list[SceneCallback] = []
 
         # Last known value per sp — seeded by an initial read, kept fresh by
         # telemetry pushes. Lets entities show a value immediately on add
@@ -173,6 +179,22 @@ class RenogyCoordinator:
 
         await asyncio.gather(*(_subscribe(f.sp) for f in fields_to_subscribe))
         _LOGGER.debug("Subscribed to %d fields", len(fields_to_subscribe))
+
+        await self._refresh_scenes(gateway_id)
+
+    async def _refresh_scenes(self, gateway_id: str) -> None:
+        """Fetch Manual + Auto scenes for the gateway (PROTOCOL.md §8.1).
+
+        Scenes are optional polish — a REST failure here shouldn't block
+        startup of the rest of the integration.
+        """
+        try:
+            scenes = await self._rest.get_scenes(gateway_id)
+        except RenogyConnectionError:
+            _LOGGER.debug("Failed to fetch scenes for gateway %s", gateway_id)
+            return
+        self.scenes = {s.id: s for s in scenes}
+        _LOGGER.debug("Discovered %d scenes", len(self.scenes))
 
     def _drop_phantom_instances(self) -> None:
         """Remove fields for multi-instance slots with no live seeded value.
@@ -291,6 +313,59 @@ class RenogyCoordinator:
         except (RenogyRTMError, TimeoutError) as err:
             _LOGGER.error("Write to %s failed: %s", sp, err)
             raise
+
+    async def async_run_scene(self, scene_id: str) -> None:
+        """Execute a Manual scene (PROTOCOL.md §8.3).
+
+        Runs a batch of writes to physical circuits — the scene must already
+        exist in self.scenes (i.e. came from a successful discovery fetch).
+        """
+        from homeassistant.exceptions import HomeAssistantError  # noqa: PLC0415
+
+        scene = self.scenes.get(scene_id)
+        if scene is None:
+            raise HomeAssistantError(f"Unknown scene id {scene_id}")
+
+        try:
+            ack = await self._rtm.run_scene(scene.gateway_did, int(scene_id))
+            code = ack.get("code") if ack else None
+            if code not in (0, 14):
+                _LOGGER.warning(
+                    "Run scene %s returned unexpected code: %s", scene_id, code
+                )
+        except (RenogyRTMError, TimeoutError) as err:
+            _LOGGER.error("Run scene %s failed: %s", scene_id, err)
+            raise
+
+    async def async_set_scene_open(self, scene_id: str, is_open: bool) -> None:
+        """Arm/disarm an Auto scene (PROTOCOL.md §8.1/§8.2)."""
+        scene = self.scenes.get(scene_id)
+        if scene is None:
+            from homeassistant.exceptions import HomeAssistantError  # noqa: PLC0415
+
+            raise HomeAssistantError(f"Unknown scene id {scene_id}")
+
+        await self._rest.update_scene(scene, is_open=is_open)
+        scene.is_open = is_open
+        self._fire_scene_callbacks()
+
+    @callback
+    def register_scene_callback(self, cb: SceneCallback) -> None:
+        """Register a callback fired whenever any scene's state changes."""
+        self._scene_callbacks.append(cb)
+
+    @callback
+    def unregister_scene_callback(self, cb: SceneCallback) -> None:
+        """Remove a previously registered scene callback."""
+        with contextlib.suppress(ValueError):
+            self._scene_callbacks.remove(cb)
+
+    def _fire_scene_callbacks(self) -> None:
+        for cb in self._scene_callbacks:
+            try:
+                cb()
+            except Exception:
+                _LOGGER.exception("Error in scene callback")
 
     # ------------------------------------------------------------------
     # RTM reconnection

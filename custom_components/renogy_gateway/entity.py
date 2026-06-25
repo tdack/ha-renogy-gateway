@@ -6,7 +6,7 @@ from homeassistant.core import callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import Entity
 
-from .api.models import FieldSpec, RenogyDevice
+from .api.models import FieldSpec, RenogyDevice, SceneInfo
 from .const import DOMAIN
 from .coordinator import RenogyCoordinator
 
@@ -69,6 +69,66 @@ class RenogyBaseEntity(Entity):
         """Process an incoming telemetry push for this entity's sp."""
         self._value = value
         self._available = True
+        self.async_write_ha_state()
+
+    @callback
+    def _handle_availability(self, available: bool) -> None:
+        """Handle RTM connect/disconnect events."""
+        self._available = available
+        self.async_write_ha_state()
+
+
+class RenogySceneEntity(Entity):
+    """Base class for scene entities (button/switch), keyed by scene id
+    rather than a field sp — scenes come from REST CRUD, not the schema-
+    driven field pipeline (PROTOCOL.md §8)."""
+
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+
+    def __init__(
+        self,
+        coordinator: RenogyCoordinator,
+        gateway_name: str,
+        scene: SceneInfo,
+    ) -> None:
+        """Initialize the scene entity, attached to the gateway device."""
+        self._coordinator = coordinator
+        self._scene_id = scene.id
+        self._available = True
+
+        self._attr_unique_id = f"renogy_scene_{scene.id}"
+        self._attr_name = scene.name
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, scene.gateway_did)},
+            name=gateway_name,
+            manufacturer="Renogy",
+            model="ONE Core",
+        )
+
+    @property
+    def _scene(self) -> SceneInfo | None:
+        """Return the current SceneInfo, or None if it's gone missing."""
+        return self._coordinator.scenes.get(self._scene_id)
+
+    @property
+    def available(self) -> bool:
+        """Return True if the RTM connection is live and the scene still exists."""
+        return self._available and self._scene is not None
+
+    async def async_added_to_hass(self) -> None:
+        """Register callbacks when entity is added to HA."""
+        self._coordinator.register_scene_callback(self._handle_scene_update)
+        self._coordinator.register_availability_callback(self._handle_availability)
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Unregister callbacks when entity is removed."""
+        self._coordinator.unregister_scene_callback(self._handle_scene_update)
+        self._coordinator.unregister_availability_callback(self._handle_availability)
+
+    @callback
+    def _handle_scene_update(self) -> None:
+        """Process a scene-state change (e.g. Auto enable toggled)."""
         self.async_write_ha_state()
 
     @callback

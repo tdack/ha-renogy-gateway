@@ -8,6 +8,7 @@ import pytest
 from custom_components.renogy_gateway.api.models import (
     FieldSpec,
     RenogyDevice,
+    SceneInfo,
     TokenSet,
 )
 from custom_components.renogy_gateway.const import (
@@ -168,6 +169,34 @@ MOCK_TPMS_DEVICE = RenogyDevice(
     fields=[FIELD_TPMS_STATE],
 )
 
+MOCK_MANUAL_SCENE = SceneInfo(
+    id="2400162031240761",
+    name="Away",
+    gateway_did=MOCK_GATEWAY_ID,
+    is_manual=True,
+    is_open=True,
+    raw={
+        "id": 2400162031240761,
+        "sceneName": "Away",
+        "conditionType": 1,
+        "isOpen": True,
+    },
+)
+
+MOCK_AUTO_SCENE = SceneInfo(
+    id="2400162031240762",
+    name="Cooling On",
+    gateway_did=MOCK_GATEWAY_ID,
+    is_manual=False,
+    is_open=True,
+    raw={
+        "id": 2400162031240762,
+        "sceneName": "Cooling On",
+        "conditionType": 4,
+        "isOpen": True,
+    },
+)
+
 CONFIG_ENTRY_DATA = {
     CONF_EMAIL: MOCK_EMAIL,
     CONF_PASSWORD: MOCK_PASSWORD,
@@ -196,12 +225,20 @@ def mock_coordinator() -> MagicMock:
         MOCK_CHARGER_DEVICE.did_str: MOCK_CHARGER_DEVICE,
         MOCK_TPMS_DEVICE.did_str: MOCK_TPMS_DEVICE,
     }
+    coord.scenes = {
+        MOCK_MANUAL_SCENE.id: MOCK_MANUAL_SCENE,
+        MOCK_AUTO_SCENE.id: MOCK_AUTO_SCENE,
+    }
     coord.async_write = AsyncMock()
+    coord.async_run_scene = AsyncMock()
+    coord.async_set_scene_open = AsyncMock()
     coord.get_value = MagicMock(return_value=None)
     coord.register_telemetry_callback = MagicMock()
     coord.unregister_telemetry_callback = MagicMock()
     coord.register_availability_callback = MagicMock()
     coord.unregister_availability_callback = MagicMock()
+    coord.register_scene_callback = MagicMock()
+    coord.unregister_scene_callback = MagicMock()
     return coord
 
 

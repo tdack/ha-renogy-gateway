@@ -9,8 +9,9 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from .api.models import FieldSpec, RenogyDevice
+from .const import CONF_GATEWAY_NAME
 from .coordinator import RenogyConfigEntry, RenogyCoordinator
-from .entity import RenogyBaseEntity
+from .entity import RenogyBaseEntity, RenogySceneEntity
 
 PARALLEL_UPDATES = 0
 
@@ -77,7 +78,7 @@ async def async_setup_entry(
 ) -> None:
     """Set up Renogy switch entities from a config entry."""
     coordinator: RenogyCoordinator = entry.runtime_data
-    entities = [
+    entities: list[RenogySwitch | RenogyAutoSceneSwitch] = [
         RenogySwitch(
             coordinator, device, field, is_config=_is_config_switch(field, device)
         )
@@ -85,6 +86,12 @@ async def async_setup_entry(
         for field in device.fields
         if _is_load_switch(field, device) or _is_config_switch(field, device)
     ]
+    gateway_name = entry.data[CONF_GATEWAY_NAME]
+    entities.extend(
+        RenogyAutoSceneSwitch(coordinator, gateway_name, scene)
+        for scene in coordinator.scenes.values()
+        if not scene.is_manual
+    )
     async_add_entities(entities)
 
 
@@ -126,3 +133,26 @@ class RenogySwitch(RenogyBaseEntity, RestoreEntity, SwitchEntity):
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the switch off."""
         await self._coordinator.async_write(self._field.sp, False)
+
+
+class RenogyAutoSceneSwitch(RenogySceneEntity, SwitchEntity):
+    """Arms/disarms an Auto scene (condition-triggered automation).
+
+    Not EntityCategory.CONFIG — this is an operational arm/disarm control,
+    matching the dashboard's Auto-scene toggle (SceneList.svelte), not a
+    device setting.
+    """
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return True if the Auto scene is armed."""
+        scene = self._scene
+        return scene.is_open if scene is not None else None
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Arm the Auto scene."""
+        await self._coordinator.async_set_scene_open(self._scene_id, True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Disarm the Auto scene."""
+        await self._coordinator.async_set_scene_open(self._scene_id, False)

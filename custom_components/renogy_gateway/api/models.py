@@ -78,6 +78,25 @@ class FieldSpec:
 
 
 @dataclass
+class SceneInfo:
+    """A scene (Manual or Auto) from the gateway's REST scene CRUD (PROTOCOL.md §8).
+
+    `raw` keeps the exact object as returned by `getUserScenes` so it can be
+    echoed back intact to `updateScene` when toggling an Auto scene's armed
+    state — the API expects the full scene body, not a partial patch.
+    """
+
+    id: str
+    name: str
+    gateway_did: str
+    is_manual: bool
+    """True for a Manual (Run-button) scene; False for an Auto (condition-triggered) scene."""
+    is_open: bool
+    """Auto scene armed state. Always True for Manual scenes (no enable toggle)."""
+    raw: dict
+
+
+@dataclass
 class RenogyDevice:
     """A device discovered behind a Renogy gateway."""
 
