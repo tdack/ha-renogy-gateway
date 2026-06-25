@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/icon.png" alt="Renogy Gateway icon" width="96" height="96"></p>
+
 # Renogy Gateway for Home Assistant
 
 A Home Assistant custom integration for Renogy ONE Core power systems,
@@ -51,3 +53,16 @@ remove the repository from HACS if you no longer want updates.
 
 This is a community project maintained on a best-effort basis. Please file
 issues at the [GitHub issue tracker](https://github.com/tdack/ha-renogy-gateway/issues).
+
+## Icon / branding
+
+The icon shown in this README lives in `docs/icon.png` (and `docs/icon.svg`
+as the source vector), borrowed from the
+[renogy-gateway](https://github.com/troydack/renogy-gateway) dashboard's
+favicon. HACS and the Home Assistant integrations page don't read icons from
+this repo directly — they pull from the community
+[home-assistant/brands](https://github.com/home-assistant/brands) repository.
+`brands/custom_integrations/renogy_gateway/` is a staging copy
+(`icon.png` 256×256, `icon@2x.png` 512×512) in the exact layout that repo
+expects, ready to submit as a PR there to make the icon show up in HA/HACS
+itself.
