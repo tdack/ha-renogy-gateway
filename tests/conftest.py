@@ -105,6 +105,19 @@ FIELD_ONLINE = FieldSpec(
     ops=6,  # read + subscribe only
 )
 
+# Enum sensor field (read-only int with options — e.g. TPMS tyre status)
+FIELD_TPMS_STATE = FieldSpec(
+    sp="4891324250207717566/tpms.tp_state_1.state",
+    name="tp_state_1.state",
+    field_type=2,
+    ops=6,  # read + subscribe only, no write bit
+    options=[
+        {"key": 0, "value": "Normal"},
+        {"key": 1, "value": "Low Pressure"},
+        {"key": 2, "value": "High Pressure"},
+    ],
+)
+
 MOCK_SHUNT_DEVICE = RenogyDevice(
     did_str="4838812556313808772",
     pid="SmartShunt300",
@@ -138,6 +151,15 @@ MOCK_CHARGER_DEVICE = RenogyDevice(
     fields=[FIELD_CHARGE_VOLTAGE],
 )
 
+MOCK_TPMS_DEVICE = RenogyDevice(
+    did_str="4891324250207717566",
+    pid="00340003",
+    sku="TPMS",
+    name="TPMS",
+    online=True,
+    fields=[FIELD_TPMS_STATE],
+)
+
 CONFIG_ENTRY_DATA = {
     CONF_EMAIL: MOCK_EMAIL,
     CONF_PASSWORD: MOCK_PASSWORD,
@@ -164,6 +186,7 @@ def mock_coordinator() -> MagicMock:
         MOCK_SHUNT_DEVICE.did_str: MOCK_SHUNT_DEVICE,
         MOCK_BOX_DEVICE.did_str: MOCK_BOX_DEVICE,
         MOCK_CHARGER_DEVICE.did_str: MOCK_CHARGER_DEVICE,
+        MOCK_TPMS_DEVICE.did_str: MOCK_TPMS_DEVICE,
     }
     coord.async_write = AsyncMock()
     coord.get_value = MagicMock(return_value=None)

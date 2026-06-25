@@ -37,13 +37,24 @@ _UNIT_MAP: dict[str, tuple[str, SensorDeviceClass | None]] = {
 
 
 def _is_sensor(field: FieldSpec) -> bool:
-    """Return True if this field should be a sensor entity."""
-    # Read-only numeric with a unit, or read-only int/float without unit
+    """Return True if this field should be a plain numeric sensor entity."""
+    # Read-only numeric with a unit, or read-only int/float without unit.
+    # Enum-valued readings (options present) become a RenogyEnumSensor instead.
     return (
         not field.writable
         and field.field_type in (2, 3)  # int or float
-        and not field.options  # not an enum — those are select entities
+        and not field.options
     )
+
+
+def _is_enum_sensor(field: FieldSpec) -> bool:
+    """Return True if this field is a read-only enum reading (status/mode code).
+
+    Writable enum fields become select entities (select.py); a read-only enum
+    has no writable counterpart there, so without this it matches none of the
+    platform filters and is silently dropped.
+    """
+    return not field.writable and bool(field.options)
 
 
 async def async_setup_entry(
@@ -53,12 +64,13 @@ async def async_setup_entry(
 ) -> None:
     """Set up Renogy sensor entities from a config entry."""
     coordinator: RenogyCoordinator = entry.runtime_data
-    entities = [
-        RenogySensor(coordinator, device, field)
-        for device in coordinator.devices.values()
-        for field in device.fields
-        if _is_sensor(field)
-    ]
+    entities: list[RenogySensor | RenogyEnumSensor] = []
+    for device in coordinator.devices.values():
+        for field in device.fields:
+            if _is_sensor(field):
+                entities.append(RenogySensor(coordinator, device, field))
+            elif _is_enum_sensor(field):
+                entities.append(RenogyEnumSensor(coordinator, device, field))
     async_add_entities(entities)
 
 
@@ -86,3 +98,30 @@ class RenogySensor(RenogyBaseEntity, SensorEntity):
     def native_value(self) -> float | int | None:
         """Return the latest telemetry value."""
         return self._value
+
+
+class RenogyEnumSensor(RenogyBaseEntity, SensorEntity):
+    """A read-only enum reading (status/mode code) from Renogy telemetry."""
+
+    _attr_device_class = SensorDeviceClass.ENUM
+
+    def __init__(
+        self,
+        coordinator: RenogyCoordinator,
+        device: RenogyDevice,
+        field: FieldSpec,
+    ) -> None:
+        """Initialize the enum sensor and build the key→label option map."""
+        super().__init__(coordinator, device, field)
+        assert field.options is not None
+        self._key_to_label: dict[str, str] = {
+            str(opt["key"]): str(opt["value"]) for opt in field.options
+        }
+        self._attr_options = list(self._key_to_label.values())
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the current option's display label."""
+        if self._value is None:
+            return None
+        return self._key_to_label.get(str(self._value))

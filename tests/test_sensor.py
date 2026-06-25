@@ -2,10 +2,16 @@
 
 from unittest.mock import MagicMock
 
-from custom_components.renogy_gateway.sensor import RenogySensor
+from custom_components.renogy_gateway.sensor import (
+    RenogyEnumSensor,
+    RenogySensor,
+    _is_enum_sensor,
+    _is_sensor,
+)
+from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.core import HomeAssistant
 
-from .conftest import FIELD_SOC, MOCK_SHUNT_DEVICE
+from .conftest import FIELD_SOC, FIELD_SOC_RULE, FIELD_TPMS_STATE, MOCK_SHUNT_DEVICE, MOCK_TPMS_DEVICE
 
 
 async def test_sensor_state_from_telemetry(
@@ -59,3 +65,30 @@ async def test_sensor_unique_id(
     """Sensor has a stable unique ID."""
     sensor = RenogySensor(mock_coordinator, MOCK_SHUNT_DEVICE, FIELD_SOC)
     assert sensor.unique_id == f"renogy_{FIELD_SOC.sp}"
+
+
+def test_is_sensor_excludes_enum_fields() -> None:
+    """A read-only field with options is not a plain sensor — it's an enum sensor."""
+    assert _is_sensor(FIELD_TPMS_STATE) is False
+    assert _is_enum_sensor(FIELD_TPMS_STATE) is True
+
+
+def test_is_enum_sensor_excludes_writable_fields() -> None:
+    """A writable enum field is a select entity, not an enum sensor."""
+    assert _is_enum_sensor(FIELD_SOC_RULE) is False
+
+
+async def test_enum_sensor_native_value_maps_key_to_label(
+    hass: HomeAssistant,
+    mock_coordinator,
+) -> None:
+    """Enum sensor resolves the raw telemetry key to its display label."""
+    sensor = RenogyEnumSensor(mock_coordinator, MOCK_TPMS_DEVICE, FIELD_TPMS_STATE)
+    sensor.hass = hass
+    sensor.async_write_ha_state = MagicMock()
+
+    assert sensor.device_class == SensorDeviceClass.ENUM
+    assert sensor.native_value is None
+
+    sensor._handle_telemetry(1)
+    assert sensor.native_value == "Low Pressure"
