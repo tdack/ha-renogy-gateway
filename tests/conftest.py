@@ -105,6 +105,14 @@ FIELD_ONLINE = FieldSpec(
     ops=6,  # read + subscribe only
 )
 
+# Number field (writable, no schema bounds at all)
+FIELD_UNBOUNDED_NUMBER = FieldSpec(
+    sp="4774953285866299397/charger.some_unbounded_setting",
+    name="some_unbounded_setting",
+    field_type=2,
+    ops=7,
+)
+
 # Enum sensor field (read-only int with options — e.g. TPMS tyre status)
 FIELD_TPMS_STATE = FieldSpec(
     sp="4891324250207717566/tpms.tp_state_1.state",

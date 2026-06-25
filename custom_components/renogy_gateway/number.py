@@ -28,13 +28,17 @@ def _is_light_ratio(field: FieldSpec, device: RenogyDevice) -> bool:
 
 
 def _is_number(field: FieldSpec, device: RenogyDevice) -> bool:
-    """Return True if this field should be a number entity."""
+    """Return True if this field should be a number entity.
+
+    Schema bounds (min/max) are not required — the dashboard's equivalent
+    curation (packages/core/src/params.ts buildParams) treats them as an
+    optional bounds check, not a precondition for showing the setting at
+    all. A field without bounds falls back to a generous default range.
+    """
     return (
         field.writable
         and field.field_type in (2, 3)  # int or float
         and not field.options  # not an enum
-        and field.min_value is not None
-        and field.max_value is not None
         and not _is_light_ratio(field, device)
     )
 
@@ -69,8 +73,15 @@ class RenogyNumber(RenogyBaseEntity, NumberEntity):
     ) -> None:
         """Initialize number entity with range and unit from the field spec."""
         super().__init__(coordinator, device, field)
-        self._attr_native_min_value = field.min_value or 0.0
-        self._attr_native_max_value = field.max_value or 100.0
+        # Schema bounds are an optional hint, not a precondition (see
+        # _is_number). Fall back to a generous unbounded-ish range rather
+        # than clamping an unbounded field to HA's 0-100 default.
+        self._attr_native_min_value = (
+            field.min_value if field.min_value is not None else -1_000_000.0
+        )
+        self._attr_native_max_value = (
+            field.max_value if field.max_value is not None else 1_000_000.0
+        )
         self._attr_native_step = (
             10 ** (-field.precision) if field.precision > 0 else 1.0
         )
