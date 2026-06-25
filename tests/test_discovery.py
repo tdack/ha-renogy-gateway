@@ -3,10 +3,13 @@
 import json
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
 from custom_components.renogy_gateway.api.discovery import (
     _SKIP_NAMESPACES,
     RenogyDiscovery,
     _apply_labels,
+    _parse_ops,
 )
 from custom_components.renogy_gateway.api.models import FieldSpec
 from custom_components.renogy_gateway.api.rtm import RenogyRTMError
@@ -143,51 +146,53 @@ async def test_voltage_leaf_forced_readonly() -> None:
     assert by_name["current"].writable is False
 
 
-async def test_known_telemetry_paths_forced_readonly() -> None:
-    """Fields documented as pure telemetry (PROTOCOL.md §6/§7.4) must not
-    surface as Number/Select entities even when the schema marks them
-    writable. Covers a real-world regression: TPMS pressure and shunt SOC
-    were showing up as Configuration items instead of sensors."""
+@pytest.mark.parametrize(
+    ("ops_raw", "expected"),
+    [
+        (1, {"writable": True, "readable": False, "subscribable": False}),
+        (2, {"writable": False, "readable": True, "subscribable": False}),
+        (4, {"writable": False, "readable": False, "subscribable": True}),
+        # 5 is a specific composite code meaning "read + subscribe, NOT
+        # write" — despite 5 == 4+1 in binary. Mirrors
+        # packages/core/src/discovery.ts's opsToCaps in the sibling
+        # renogy-gateway repo exactly. This is the real-world regression:
+        # TPMS pressure / shunt SOC report ops=5 and were being misread as
+        # writable by a naive bitwise OR, surfacing them as Configuration
+        # (Number) entities instead of sensors.
+        (5, {"writable": False, "readable": True, "subscribable": True}),
+        (7, {"writable": True, "readable": True, "subscribable": True}),
+        ([1, 2, 4, 5, 7], {"writable": True, "readable": True, "subscribable": True}),
+        ([5], {"writable": False, "readable": True, "subscribable": True}),
+    ],
+)
+def test_parse_ops_matches_dashboard_semantics(
+    ops_raw: int | list[int], expected: dict[str, bool]
+) -> None:
+    """ops is a set of recognized codes, not a freely-combinable bitmask."""
+    ops = _parse_ops(ops_raw)
+    assert bool(ops & 1) is expected["writable"]
+    assert bool(ops & 2) is expected["readable"]
+    assert bool(ops & 4) is expected["subscribable"]
+
+
+async def test_tpms_pressure_ops5_is_not_writable() -> None:
+    """A field reported with ops=5 (read+subscribe) must not become a Number
+    entity — this is the exact shape TPMS pressure/shunt SOC reported."""
     rtm = MagicMock()
     rtm.rpc = AsyncMock(
         side_effect=[
-            {"sps": [{"name": "main_battery_soc", "type": 3, "ops": 7, "unit": "%"}]},
-            {
-                "sps": [
-                    {"name": "tp_state_1", "type": 7, "ref": "tpms_state"},
-                ]
-            },
-            {
-                "sps": [
-                    {"name": "pressure", "type": 3, "ops": 7, "unit": "kPa"},
-                ]
-            },
+            {"sps": [{"name": "tp_state_1", "type": 7, "ref": "tpms_state"}]},
+            {"sps": [{"name": "pressure", "type": 3, "ops": 5, "unit": "kPa"}]},
         ]
     )
 
     discovery = RenogyDiscovery(rtm)
-    shunt_fields = await discovery._get_fields("123", "shunt")
-    tpms_fields = await discovery._get_fields("456", "tpms")
+    fields = await discovery._get_fields("456", "tpms")
 
-    by_name = {f.name: f for f in shunt_fields + tpms_fields}
-    assert by_name["main_battery_soc"].writable is False
-    assert by_name["tp_state_1.pressure"].writable is False
-
-
-async def test_tank_ratio_forced_readonly() -> None:
-    """ai_N.ratio (tank fill level) is documented read-only (PROTOCOL.md
-    §7.4) but some rigs' schemas mark it writable anyway."""
-    rtm = MagicMock()
-    rtm.rpc = AsyncMock(
-        return_value={
-            "sps": [{"name": "ai_1.ratio", "type": 2, "ops": 7, "unit": "%"}]
-        }
-    )
-
-    discovery = RenogyDiscovery(rtm)
-    fields = await discovery._get_fields("123", "distribution_box")
-
-    assert fields[0].writable is False
+    pressure = next(f for f in fields if f.name == "tp_state_1.pressure")
+    assert pressure.writable is False
+    assert pressure.readable is True
+    assert pressure.subscribable is True
 
 
 async def test_get_fields_ref_cycle_guard() -> None:

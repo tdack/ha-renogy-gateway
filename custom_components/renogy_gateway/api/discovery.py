@@ -11,7 +11,6 @@ User-assigned channel labels are read from userdata_str.config (double-encoded J
 import asyncio
 import json
 import logging
-import re
 from typing import Any
 
 from ..const import HIDE_LEAVES
@@ -58,39 +57,6 @@ _ENTITY_TYPES = frozenset({1, 2, 3})  # bool, int, float
 # field writable, including protocol internals, so `ops` alone isn't a
 # reliable signal here.
 _FORCE_READONLY_LEAVES = frozenset({"voltage"})
-
-# Full-path patterns ("<namespace>.<field_path>") for fields documented as
-# pure telemetry (PROTOCOL.md §6/§7.4) that some rigs' schemas nonetheless
-# mark writable. Ported from apps/hass-bridge/src/filter.ts's keyPatterns in
-# the sibling renogy-gateway repo — that list is curated by the protocol's
-# reverse-engineers specifically as "this is definitely live telemetry,"
-# even though hass-bridge itself only uses it to decide MQTT publish
-# inclusion, not control-vs-sensor classification. Reused here for the
-# latter since no canonical implementation actually solves this generically;
-# the dashboard avoids it entirely by hand-building telemetry cards that
-# never consult `ops`.
-_FORCE_READONLY_PATH_PATTERNS = tuple(
-    re.compile(p)
-    for p in (
-        r"soc$",
-        r"main_battery_voltage$",
-        r"main_battery_current$",
-        r"main_battery_temperature$",
-        r"battery_effective_cap$",
-        r"remaining_capacity$",
-        r"remaining_time$",
-        r"^pv_input\.",
-        r"\.charging_power$",
-        r"\.charging_current$",
-        r"\.charging_voltage$",
-        r"\.power$",
-        r"dc_input_voltage$",
-        r"dc_loads_power$",
-        r"ai_\d+\.ratio$",
-        r"\.temperature$",
-        r"tp_state_\d+\.(pressure|temperature|battery_status)$",
-    )
-)
 
 # Maximum concurrent RPCs to avoid overwhelming the gateway
 _MAX_CONCURRENT = 4
@@ -265,10 +231,7 @@ class RenogyDiscovery:
         leaf = full_name.rsplit(".", 1)[-1]
         if leaf in HIDE_LEAVES:
             return []  # protocol internal / maintenance command, not a setting
-        path = f"{namespace}.{full_name}"
-        if leaf in _FORCE_READONLY_LEAVES or any(
-            p.search(path) for p in _FORCE_READONLY_PATH_PATTERNS
-        ):
+        if leaf in _FORCE_READONLY_LEAVES:
             ops &= ~1  # strip the write bit — a reading, not a setting
 
         sp = f"{did_str}/{namespace}.{full_name}"
@@ -388,15 +351,33 @@ class RenogyDiscovery:
 
 
 def _parse_ops(ops_raw: Any) -> int:
-    """Convert ops from list or int to a bitmask integer."""
+    """Convert raw `ops` (an int, or a list of recognized op codes) into our
+    internal {1: write, 2: read, 4: subscribe} bitmask.
+
+    `ops` is NOT a generic bitmask to OR together — 5 is a specific composite
+    code meaning "read + subscribe, NOT write" despite 5 == 4+1 in binary
+    (PROTOCOL.md §7.3: "4 = subscribe (5/7 also seen)"). Mirrors
+    packages/core/src/discovery.ts's opsToCaps in the sibling renogy-gateway
+    repo exactly: `writable` only ever fires for the literal value 1; `5`
+    explicitly adds read+subscribe but never write. Naively OR-ing raw
+    integers (5 → bits 0+2 set) misread ops=5 as writable, which is how pure
+    sensor readings (TPMS pressure, shunt SOC, tank ratio, ...) were
+    surfacing as Number/Select entities instead of sensors.
+    """
     if isinstance(ops_raw, int):
-        return ops_raw
-    if isinstance(ops_raw, list):
-        mask = 0
-        for v in ops_raw:
-            mask |= int(v)
-        return mask
-    return 0
+        values = [ops_raw]
+    elif isinstance(ops_raw, list):
+        values = [int(v) for v in ops_raw]
+    else:
+        return 0
+
+    mask = 0
+    for v in values:
+        if v == 5:
+            mask |= 2 | 4  # read + subscribe, deliberately NOT write
+        else:
+            mask |= v
+    return mask
 
 
 def _to_float(v: Any) -> float | None:
