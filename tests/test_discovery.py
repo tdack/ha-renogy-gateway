@@ -4,6 +4,7 @@ import json
 from unittest.mock import AsyncMock, MagicMock
 
 from custom_components.renogy_gateway.api.discovery import (
+    _SKIP_NAMESPACES,
     RenogyDiscovery,
     _apply_labels,
 )
@@ -173,6 +174,58 @@ async def test_hide_leaves_excluded_from_fields() -> None:
     fields = await discovery._get_fields("123", "charger")
 
     assert {f.name for f in fields} == {"max_current"}
+
+
+def test_skip_namespaces_matches_dashboard_curation() -> None:
+    """Namespaces with real telemetry/settings in the dashboard must not be
+    dropped wholesale, even though they're config-ish; only protocol/system
+    internals neither app surfaces are skipped (see params.ts PARAM_HIDE_NS /
+    bridge.ts SKIP_SUBSCRIBE_NS in the sibling renogy-gateway repo)."""
+    not_skipped = {
+        "gwmConfig",
+        "digital_input",
+        "signal",
+        "alternator",
+        "battery_temp_sensor",
+        "inverter_history",
+    }
+    assert not (not_skipped & _SKIP_NAMESPACES)
+
+    still_skipped = {
+        "thing",
+        "gwm",
+        "version_ctrl",
+        "driving_mode",
+        "cloud",
+        "customAlarm",
+        "scene",
+        "charger_history",
+        "userdata_str",
+    }
+    assert still_skipped <= _SKIP_NAMESPACES
+
+
+async def test_gwm_config_fields_resolved_via_get_fields() -> None:
+    """gwmConfig is no longer skipped, so its fields resolve normally
+    (e.g. socRule should be discoverable as a select-style enum field)."""
+    rtm = MagicMock()
+    rtm.rpc = AsyncMock(
+        return_value={
+            "sps": [
+                {
+                    "name": "socRule",
+                    "type": 2,
+                    "ops": 7,
+                    "options": [{"key": 0, "value": "Low"}, {"key": 1, "value": "Medium"}],
+                },
+            ]
+        }
+    )
+
+    discovery = RenogyDiscovery(rtm)
+    fields = await discovery._get_fields("123", "gwmConfig")
+
+    assert {f.name for f in fields} == {"socRule"}
 
 
 async def test_ctrl_sp_blacklist_parses_json_array() -> None:

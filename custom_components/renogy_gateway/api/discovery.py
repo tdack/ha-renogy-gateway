@@ -19,28 +19,28 @@ from .rtm import RenogyRTM, RenogyRTMError
 
 _LOGGER = logging.getLogger(__name__)
 
-# Namespaces that carry only internal/meta data — don't surface as entities
+# Namespaces that carry only internal/meta data — don't surface as entities.
+# Mirrors the dashboard/hass-bridge curation (packages/core/src/params.ts
+# PARAM_HIDE_NS + apps/dashboard/src/worker/bridge.ts SKIP_SUBSCRIBE_NS) in
+# the sibling renogy-gateway repo. Namespaces like gwmConfig, digital_input,
+# signal, alternator, and battery_temp_sensor carry real telemetry/settings
+# there and are intentionally NOT hidden here — only protocol/system
+# internals that neither app ever surfaces are skipped. `scene` is handled
+# by a dedicated platform instead of the generic field pipeline.
 _SKIP_NAMESPACES = frozenset(
     {
         "thing",
         "gwm",
-        "gwmConfig",
         "version_ctrl",
-        "driving_mode",
+        "driving_mode",  # special-cased below for ctrl_sp_blacklist
         "cloud",
         "customAlarm",
         "scene",
-        "history",
         "charger_history",
-        "inverter_history",
         "userdata_str",
         "sys_data_str",
         "factoryConfig",
         "ems_gw",
-        "digital_input",
-        "signal",
-        "alternator",
-        "battery_temp_sensor",
         "buzzer",
         "gyro",
         "dev_ota",
