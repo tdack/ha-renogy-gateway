@@ -143,6 +143,53 @@ async def test_voltage_leaf_forced_readonly() -> None:
     assert by_name["current"].writable is False
 
 
+async def test_known_telemetry_paths_forced_readonly() -> None:
+    """Fields documented as pure telemetry (PROTOCOL.md §6/§7.4) must not
+    surface as Number/Select entities even when the schema marks them
+    writable. Covers a real-world regression: TPMS pressure and shunt SOC
+    were showing up as Configuration items instead of sensors."""
+    rtm = MagicMock()
+    rtm.rpc = AsyncMock(
+        side_effect=[
+            {"sps": [{"name": "main_battery_soc", "type": 3, "ops": 7, "unit": "%"}]},
+            {
+                "sps": [
+                    {"name": "tp_state_1", "type": 7, "ref": "tpms_state"},
+                ]
+            },
+            {
+                "sps": [
+                    {"name": "pressure", "type": 3, "ops": 7, "unit": "kPa"},
+                ]
+            },
+        ]
+    )
+
+    discovery = RenogyDiscovery(rtm)
+    shunt_fields = await discovery._get_fields("123", "shunt")
+    tpms_fields = await discovery._get_fields("456", "tpms")
+
+    by_name = {f.name: f for f in shunt_fields + tpms_fields}
+    assert by_name["main_battery_soc"].writable is False
+    assert by_name["tp_state_1.pressure"].writable is False
+
+
+async def test_tank_ratio_forced_readonly() -> None:
+    """ai_N.ratio (tank fill level) is documented read-only (PROTOCOL.md
+    §7.4) but some rigs' schemas mark it writable anyway."""
+    rtm = MagicMock()
+    rtm.rpc = AsyncMock(
+        return_value={
+            "sps": [{"name": "ai_1.ratio", "type": 2, "ops": 7, "unit": "%"}]
+        }
+    )
+
+    discovery = RenogyDiscovery(rtm)
+    fields = await discovery._get_fields("123", "distribution_box")
+
+    assert fields[0].writable is False
+
+
 async def test_get_fields_ref_cycle_guard() -> None:
     """A self-referencing model does not recurse forever."""
     rtm = MagicMock()
