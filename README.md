@@ -26,7 +26,7 @@ repository:
 
 1. In Home Assistant, go to **HACS → Integrations**.
 2. Click the **⋮** menu (top right) → **Custom repositories**.
-3. Add this repository's URL: `https://github.com/troydack/ha-renogy-gateway`
+3. Add this repository's URL: `https://github.com/tdack/ha-renogy-gateway`
 4. Category: **Integration**.
 5. Find "Renogy Gateway" in HACS and install it.
 6. Restart Home Assistant.
@@ -50,4 +50,4 @@ remove the repository from HACS if you no longer want updates.
 ## Support
 
 This is a community project maintained on a best-effort basis. Please file
-issues at the [GitHub issue tracker](https://github.com/troydack/ha-renogy-gateway/issues).
+issues at the [GitHub issue tracker](https://github.com/tdack/ha-renogy-gateway/issues).
