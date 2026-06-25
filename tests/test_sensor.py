@@ -2,6 +2,7 @@
 
 from unittest.mock import MagicMock
 
+from custom_components.renogy_gateway.api.models import FieldSpec
 from custom_components.renogy_gateway.sensor import (
     RenogyEnumSensor,
     RenogySensor,
@@ -9,6 +10,7 @@ from custom_components.renogy_gateway.sensor import (
     _is_sensor,
 )
 from homeassistant.components.sensor import SensorDeviceClass
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 
 from .conftest import FIELD_SOC, FIELD_SOC_RULE, FIELD_TPMS_STATE, MOCK_SHUNT_DEVICE, MOCK_TPMS_DEVICE
@@ -92,3 +94,28 @@ async def test_enum_sensor_native_value_maps_key_to_label(
 
     sensor._handle_telemetry(1)
     assert sensor.native_value == "Low Pressure"
+
+
+async def test_sensor_not_diagnostic_by_default(
+    hass: HomeAssistant,
+    mock_coordinator,
+) -> None:
+    """Plain telemetry (e.g. battery SOC) is not tucked into Diagnostic."""
+    sensor = RenogySensor(mock_coordinator, MOCK_SHUNT_DEVICE, FIELD_SOC)
+    assert sensor.entity_category is None
+
+
+async def test_sensor_diagnostic_for_status_like_field(
+    hass: HomeAssistant,
+    mock_coordinator,
+) -> None:
+    """A read-only field matching a diagnostic pattern (e.g. firmware
+    version, protocol, alarm/fault/status) gets EntityCategory.DIAGNOSTIC."""
+    firmware_field = FieldSpec(
+        sp="4774953285866299397/version_ctrl.firmware_code",
+        name="firmware_code",
+        field_type=2,
+        ops=6,
+    )
+    sensor = RenogySensor(mock_coordinator, MOCK_SHUNT_DEVICE, firmware_field)
+    assert sensor.entity_category == EntityCategory.DIAGNOSTIC

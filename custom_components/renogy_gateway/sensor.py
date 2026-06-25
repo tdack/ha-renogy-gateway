@@ -6,6 +6,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.const import (
+    EntityCategory,
     UnitOfElectricCurrent,
     UnitOfElectricPotential,
     UnitOfEnergy,
@@ -17,6 +18,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .api.models import FieldSpec, RenogyDevice
+from .const import is_diagnostic_field
 from .coordinator import RenogyConfigEntry, RenogyCoordinator
 from .entity import RenogyBaseEntity
 
@@ -93,6 +95,8 @@ class RenogySensor(RenogyBaseEntity, SensorEntity):
             self._attr_native_unit_of_measurement = field.unit
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_suggested_display_precision = field.precision or None
+        if is_diagnostic_field(field.sp):
+            self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
     @property
     def native_value(self) -> float | int | None:
@@ -118,6 +122,8 @@ class RenogyEnumSensor(RenogyBaseEntity, SensorEntity):
             str(opt["key"]): str(opt["value"]) for opt in field.options
         }
         self._attr_options = list(self._key_to_label.values())
+        if is_diagnostic_field(field.sp):
+            self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
     @property
     def native_value(self) -> str | None:

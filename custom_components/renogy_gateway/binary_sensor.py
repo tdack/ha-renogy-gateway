@@ -1,10 +1,12 @@
 """Binary sensor platform for Renogy Gateway — read-only boolean telemetry."""
 
 from homeassistant.components.binary_sensor import BinarySensorEntity
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .api.models import FieldSpec
+from .api.models import FieldSpec, RenogyDevice
+from .const import is_diagnostic_field
 from .coordinator import RenogyConfigEntry, RenogyCoordinator
 from .entity import RenogyBaseEntity
 
@@ -34,6 +36,17 @@ async def async_setup_entry(
 
 class RenogyBinarySensor(RenogyBaseEntity, BinarySensorEntity):
     """A read-only boolean binary sensor from Renogy telemetry."""
+
+    def __init__(
+        self,
+        coordinator: RenogyCoordinator,
+        device: RenogyDevice,
+        field: FieldSpec,
+    ) -> None:
+        """Initialize the binary sensor, marking status-like fields diagnostic."""
+        super().__init__(coordinator, device, field)
+        if is_diagnostic_field(field.sp):
+            self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
     @property
     def is_on(self) -> bool | None:

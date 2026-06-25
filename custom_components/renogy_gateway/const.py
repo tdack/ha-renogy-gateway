@@ -1,6 +1,7 @@
 """Constants for the Renogy Gateway integration."""
 
 import logging
+import re
 
 DOMAIN = "renogy_gateway"
 
@@ -35,3 +36,37 @@ HIDE_LEAVES = frozenset(
         "coef",
     }
 )
+
+# Patterns identifying read-only status/alarm/version fields that belong in
+# HA's Diagnostic section rather than mixed into the main entity list.
+# Mirrors apps/hass-bridge/src/filter.ts diagnosticPatterns in the sibling
+# renogy-gateway repo.
+_DIAGNOSTIC_PATTERNS = tuple(
+    re.compile(p)
+    for p in (
+        r"\.online$",
+        r"alarm",
+        r"fault",
+        r"\berror",
+        r"warning",
+        r"_status$",
+        r"\.status$",
+        r"_state$",
+        r"_code$",
+        r"protocol",
+        r"firmware",
+        r"_version$",
+        r"heartbeat",
+    )
+)
+
+
+def is_diagnostic_field(sp: str) -> bool:
+    """Return True if the field's path matches a diagnostic pattern.
+
+    `sp` is the full topic path ("<did>/<namespace>.<field_path>"); matching
+    is done against the namespace+field-path portion, same as the dashboard's
+    fieldPath ("<ns>.<path>").
+    """
+    field_path = sp.split("/", 1)[-1]
+    return any(p.search(field_path) for p in _DIAGNOSTIC_PATTERNS)
