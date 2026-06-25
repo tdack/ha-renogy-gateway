@@ -1,7 +1,7 @@
 {
   "domain": "renogy_gateway",
   "name": "Renogy Gateway",
-  "codeowners": ["@troydack"],
+  "codeowners": ["@tdack"],
   "config_flow": true,
   "documentation": "https://github.com/tdack/ha-renogy-gateway",
   "integration_type": "hub",
@@ -9,5 +9,5 @@
   "issue_tracker": "https://github.com/tdack/ha-renogy-gateway/issues",
   "loggers": ["custom_components.renogy_gateway"],
   "requirements": [],
-  "version": "0.2.1"
+  "version": "0.2.2"
 }

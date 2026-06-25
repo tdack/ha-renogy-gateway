@@ -56,13 +56,18 @@ issues at the [GitHub issue tracker](https://github.com/tdack/ha-renogy-gateway/
 
 ## Icon / branding
 
-The icon shown in this README lives in `docs/icon.png` (and `docs/icon.svg`
-as the source vector), borrowed from the
-[renogy-gateway](https://github.com/troydack/renogy-gateway) dashboard's
-favicon. HACS and the Home Assistant integrations page don't read icons from
-this repo directly — they pull from the community
-[home-assistant/brands](https://github.com/home-assistant/brands) repository.
-`brands/custom_integrations/renogy_gateway/` is a staging copy
-(`icon.png` 256×256, `icon@2x.png` 512×512) in the exact layout that repo
-expects, ready to submit as a PR there to make the icon show up in HA/HACS
-itself.
+This integration uses Renogy's own brand icon/logo (the same images
+[firstof9/ha-renogy](https://github.com/firstof9/ha-renogy) uses, sourced
+from [home-assistant/brands](https://github.com/home-assistant/brands)'
+`custom_integrations/renogy/` folder). Two delivery mechanisms are set up:
+
+- `custom_components/renogy_gateway/brand/` — bundled directly in the
+  integration. Home Assistant 2026.3+ serves these locally via the
+  [Brands Proxy API](https://developers.home-assistant.io/blog/2026/02/24/brands-proxy-api)
+  with no extra configuration, so the icon shows up immediately after
+  installing, without waiting on an external PR.
+- `brands/custom_integrations/renogy_gateway/` — a staging copy in the
+  legacy layout, ready to submit as a PR to home-assistant/brands for
+  older Home Assistant versions that don't yet support local brand images.
+
+`docs/icon.png` (shown at the top of this README) is the same icon.
