@@ -359,6 +359,28 @@ async def test_hide_leaves_excluded_from_fields() -> None:
     assert {f.name for f in fields} == {"max_current"}
 
 
+async def test_distribution_box_channel_counts_excluded() -> None:
+    """Schema-internal channel-count bookkeeping (confirmed via
+    captures/*.har: dc_10a_count, dc_20a_count, etc.) isn't user-meaningful
+    telemetry and shouldn't become a sensor entity."""
+    rtm = MagicMock()
+    rtm.rpc = AsyncMock(
+        return_value={
+            "sps": [
+                {"name": "dc_10a_count", "type": 2, "ops": [2]},
+                {"name": "dc_20a_count", "type": 2, "ops": [2]},
+                {"name": "ai_count", "type": 2, "ops": [2]},
+                {"name": "dc_input_voltage", "type": 3, "ops": [2, 4, 5, 7], "unit": "V"},
+            ]
+        }
+    )
+
+    discovery = RenogyDiscovery(rtm)
+    fields = await discovery._get_fields("123", "distribution_box")
+
+    assert {f.name for f in fields} == {"dc_input_voltage"}
+
+
 def test_skip_namespaces_matches_dashboard_curation() -> None:
     """Namespaces with real telemetry/settings in the dashboard must not be
     dropped wholesale, even though they're config-ish; only protocol/system

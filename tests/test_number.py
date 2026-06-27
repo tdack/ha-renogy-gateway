@@ -8,6 +8,7 @@ from .conftest import (
     FIELD_CHARGE_VOLTAGE,
     FIELD_DESIRED_VOLTAGE_MV,
     FIELD_LIGHT_RATIO,
+    FIELD_MAX_CURRENT_ZH_UNIT,
     FIELD_UNBOUNDED_NUMBER,
     MOCK_BOX_DEVICE,
     MOCK_CHARGER_DEVICE,
@@ -68,3 +69,11 @@ async def test_millivolt_number_write_converts_back_to_raw_units(
     sp, payload = mock_coordinator.async_write.call_args.args
     assert sp == FIELD_DESIRED_VOLTAGE_MV.sp
     assert round(payload, 2) == 14350.0
+
+
+async def test_chinese_ampere_unit_translated(mock_coordinator) -> None:
+    """charger.max_current reports unit "安培" (Chinese for Ampere) on some
+    rigs — must translate to "A" like other current entities, not show the
+    raw Chinese characters."""
+    number = RenogyNumber(mock_coordinator, MOCK_INVERTER_DEVICE, FIELD_MAX_CURRENT_ZH_UNIT)
+    assert number.native_unit_of_measurement == "A"

@@ -121,6 +121,19 @@ FIELD_DESIRED_VOLTAGE_MV = FieldSpec(
     max_value=15000.0,
 )
 
+# Writable field with the Chinese unit string for Ampere, confirmed live via
+# captures/*.har (charger.max_current) — must translate the same way
+# packages/core/src/params.ts's UNIT_MAP does.
+FIELD_MAX_CURRENT_ZH_UNIT = FieldSpec(
+    sp="4766577127497453285/charger.max_current",
+    name="max_current",
+    field_type=3,
+    ops=7,
+    unit="安培",
+    min_value=-100000.0,
+    max_value=1000000.0,
+)
+
 # Binary sensor field (read-only bool)
 FIELD_ONLINE = FieldSpec(
     sp="4623589794012005944/thing.online",

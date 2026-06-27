@@ -37,6 +37,10 @@ _UNIT_MAP: dict[str, tuple[str, SensorDeviceClass | None, float]] = {
     "mV": (UnitOfElectricPotential.VOLT, SensorDeviceClass.VOLTAGE, 0.001),
     "A": (UnitOfElectricCurrent.AMPERE, SensorDeviceClass.CURRENT, 1.0),
     "mA": (UnitOfElectricCurrent.AMPERE, SensorDeviceClass.CURRENT, 0.001),
+    # Chinese unit string seen on some fields (e.g. charger.max_current,
+    # confirmed via captures/*.har) — matches packages/core/src/params.ts's
+    # UNIT_MAP translation in the sibling renogy-gateway repo.
+    "安培": (UnitOfElectricCurrent.AMPERE, SensorDeviceClass.CURRENT, 1.0),
     "kWh": (UnitOfEnergy.KILO_WATT_HOUR, SensorDeviceClass.ENERGY, 1.0),
     "Wh": (UnitOfEnergy.WATT_HOUR, SensorDeviceClass.ENERGY, 1.0),
     "°C": (UnitOfTemperature.CELSIUS, SensorDeviceClass.TEMPERATURE, 1.0),

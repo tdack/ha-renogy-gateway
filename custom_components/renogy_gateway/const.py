@@ -34,6 +34,15 @@ HIDE_LEAVES = frozenset(
         "config",
         "addr",
         "coef",
+        # Schema-internal channel-count bookkeeping (distribution_box),
+        # confirmed via captures/*.har in the sibling renogy-gateway repo —
+        # not user-meaningful telemetry, just "how many dc_10a_N slots exist".
+        "dc_10a_count",
+        "dc_20a_count",
+        "dc_voltage_count",
+        "di_count",
+        "relay_count",
+        "ai_count",
     }
 )
 
