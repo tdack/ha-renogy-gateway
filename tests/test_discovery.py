@@ -541,3 +541,79 @@ async def test_ctrl_sp_blacklist_empty_on_malformed_value() -> None:
     blacklist = await discovery._get_ctrl_sp_blacklist("123")
 
     assert blacklist == frozenset()
+
+
+async def test_get_product_returns_namespaces_and_protocol() -> None:
+    """get_product's 'protocol' (e.g. 'wifi') is connection-type metadata,
+    not a telemetry field — confirmed live for Vision (pid 002C0000) via
+    captures/*.har in the sibling renogy-gateway repo."""
+    rtm = MagicMock()
+    rtm.rpc = AsyncMock(
+        return_value={
+            "models": ["thing", "version_ctrl"],
+            "protocol": "wifi",
+            "text": "Vision",
+        }
+    )
+
+    discovery = RenogyDiscovery(rtm)
+    namespaces, protocol = await discovery._get_product("002C0000")
+
+    assert namespaces == ["thing", "version_ctrl"]
+    assert protocol == "wifi"
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (11005003, "V11.5.3"),
+        (1005003, "V1.5.3"),
+        (0, None),
+        (-1, None),
+    ],
+)
+async def test_get_firmware_decodes_packed_version(raw: int, expected: str | None) -> None:
+    """sw_ver is packed as 2-3-3 digit groups — mirrors
+    apps/dashboard/src/worker/bridge.ts's formatFirmware in the sibling
+    renogy-gateway repo."""
+    rtm = MagicMock()
+    rtm.read = AsyncMock(return_value=raw)
+
+    discovery = RenogyDiscovery(rtm)
+    assert await discovery._get_firmware("123") == expected
+
+
+async def test_get_firmware_none_on_read_failure() -> None:
+    """An RTM read failure is best-effort — returns None, doesn't raise."""
+    rtm = MagicMock()
+    rtm.read = AsyncMock(side_effect=RenogyRTMError("boom"))
+
+    discovery = RenogyDiscovery(rtm)
+    assert await discovery._get_firmware("123") is None
+
+
+async def test_metadata_only_device_still_resolves() -> None:
+    """Real-world regression: "Vision" has only thing + version_ctrl
+    namespaces, both always namespace-skipped, so it resolves to zero
+    fields — but the device itself (with protocol/sw_version) must still
+    be returned, not dropped, so __init__.py can register it as an HA
+    device even with no entities."""
+    rtm = MagicMock()
+
+    async def rpc(sp: str, data: dict) -> dict:
+        if "get_product" in sp:
+            return {"models": ["thing", "version_ctrl"], "protocol": "wifi"}
+        return {"sps": []}
+
+    rtm.rpc = AsyncMock(side_effect=rpc)
+    rtm.read = AsyncMock(return_value=11005003)  # thing.sw_ver
+
+    discovery = RenogyDiscovery(rtm)
+    device = await discovery._resolve_device(
+        {"did_str": "4646428229905819205", "pid": "002C0000", "text": "Vision", "online": True}
+    )
+
+    assert device is not None
+    assert device.fields == []
+    assert device.protocol == "wifi"
+    assert device.sw_version == "V11.5.3"

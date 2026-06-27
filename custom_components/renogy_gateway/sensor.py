@@ -15,10 +15,11 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .api.models import FieldSpec, RenogyDevice
-from .const import is_diagnostic_field
+from .const import DOMAIN, is_diagnostic_field
 from .coordinator import RenogyConfigEntry, RenogyCoordinator
 from .entity import RenogyBaseEntity
 
@@ -89,13 +90,15 @@ async def async_setup_entry(
 ) -> None:
     """Set up Renogy sensor entities from a config entry."""
     coordinator: RenogyCoordinator = entry.runtime_data
-    entities: list[RenogySensor | RenogyEnumSensor] = []
+    entities: list[RenogySensor | RenogyEnumSensor | RenogyConnectionTypeSensor] = []
     for device in coordinator.devices.values():
         for field in device.fields:
             if _is_sensor(field):
                 entities.append(RenogySensor(coordinator, device, field))
             elif _is_enum_sensor(field):
                 entities.append(RenogyEnumSensor(coordinator, device, field))
+        if device.protocol:
+            entities.append(RenogyConnectionTypeSensor(device))
     async_add_entities(entities)
 
 
@@ -163,3 +166,38 @@ class RenogyEnumSensor(RenogyBaseEntity, SensorEntity):
         if self._value is None:
             return None
         return self._key_to_label.get(str(self._value))
+
+
+class RenogyConnectionTypeSensor(SensorEntity):
+    """Static connection-type info (e.g. 'wifi', 'BLE RS485') from gwm.get_product.
+
+    Not tied to a telemetry field — `protocol` is read once at discovery and
+    never changes, so there's nothing to subscribe to. Exists mainly so
+    metadata-only devices (e.g. "Vision" — thing + version_ctrl, both always
+    namespace-skipped) get at least one entity: HA only creates a device
+    record implicitly via an entity's device_info, so a device with zero
+    fields would otherwise never appear at all (see __init__.py for the
+    explicit device-registry registration that also covers this).
+    """
+
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, device: RenogyDevice) -> None:
+        """Initialize with the device's static protocol string."""
+        self._attr_unique_id = f"renogy_{device.did_str}_protocol"
+        self._attr_name = "Connection type"
+        self._attr_native_value = device.protocol
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, device.did_str)},
+            name=device.name,
+            manufacturer="Renogy",
+            model=device.sku,
+            sw_version=device.sw_version,
+        )
+
+    @property
+    def available(self) -> bool:
+        """Always available — this is static metadata, not live telemetry."""
+        return True

@@ -172,7 +172,7 @@ class RenogyDiscovery:
         if not did_str or not pid:
             return None
 
-        namespaces = await self._get_namespaces(pid)
+        namespaces, protocol = await self._get_product(pid)
         if not namespaces:
             _LOGGER.debug("No namespaces for pid=%s, skipping device", pid)
             return None
@@ -194,6 +194,8 @@ class RenogyDiscovery:
         if "driving_mode" in namespaces:
             blacklist = await self._get_ctrl_sp_blacklist(did_str)
 
+        sw_version = await self._get_firmware(did_str) if "thing" in namespaces else None
+
         return RenogyDevice(
             did_str=did_str,
             pid=pid,
@@ -202,16 +204,20 @@ class RenogyDiscovery:
             online=online,
             fields=fields,
             ctrl_sp_blacklist=blacklist,
+            protocol=protocol,
+            sw_version=sw_version,
         )
 
-    async def _get_namespaces(self, pid: str) -> list[str]:
-        """Return the namespace list for a product ID."""
+    async def _get_product(self, pid: str) -> tuple[list[str], str | None]:
+        """Return (namespace list, connection protocol e.g. 'wifi') for a pid."""
         try:
             result = await self._rtm.rpc("1/gwm.get_product", {"name": pid})
         except RenogyRTMError:
             _LOGGER.debug("get_product(%s) failed", pid)
-            return []
-        return list(result.get("models") or []) if result else []
+            return [], None
+        if not result:
+            return [], None
+        return list(result.get("models") or []), result.get("protocol")
 
     # ------------------------------------------------------------------
     # Step 3: resolve field schema for a namespace
@@ -409,6 +415,38 @@ class RenogyDiscovery:
             return frozenset()
 
         return frozenset(str(v) for v in raw_value if isinstance(v, str))
+
+    # ------------------------------------------------------------------
+    # Step 6: firmware version (device metadata, not a telemetry field)
+    # ------------------------------------------------------------------
+
+    async def _get_firmware(self, did_str: str) -> str | None:
+        """Best-effort read of thing.sw_ver, formatted as "Vmajor.minor.patch".
+
+        `thing` is always namespace-skipped (protocol/system internals), but
+        sw_ver is still worth a dedicated one-shot read for device metadata —
+        mirrors apps/dashboard/src/worker/bridge.ts's formatFirmware in the
+        sibling renogy-gateway repo. Many sub-devices report nothing; this is
+        best-effort, like the dashboard's own read.
+        """
+        sp = f"{did_str}/thing.sw_ver"
+        try:
+            raw_value = await self._rtm.read(sp)
+        except (RenogyRTMError, TimeoutError):
+            return None
+
+        try:
+            raw = int(raw_value)
+        except (TypeError, ValueError):
+            return None
+        if raw <= 0:
+            return None
+
+        # Packed as 2-3-3 digit groups, each shown without leading zeros:
+        # 11005003 -> "V11.5.3", 1005003 -> "V1.5.3".
+        digits = str(raw).zfill(8)
+        major, minor, patch = int(digits[0:2]), int(digits[2:5]), int(digits[5:8])
+        return f"V{major}.{minor}.{patch}"
 
 
 # ------------------------------------------------------------------

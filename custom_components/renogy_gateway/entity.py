@@ -40,6 +40,7 @@ class RenogyBaseEntity(Entity):
             name=device.name,
             manufacturer="Renogy",
             model=device.sku,
+            sw_version=device.sw_version,
         )
 
     @property

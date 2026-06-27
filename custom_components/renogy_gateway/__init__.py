@@ -2,7 +2,9 @@
 
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 
+from .const import DOMAIN
 from .coordinator import RenogyConfigEntry, RenogyCoordinator
 
 PLATFORMS = [
@@ -21,6 +23,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: RenogyConfigEntry) -> bo
     coordinator = RenogyCoordinator(hass, entry)
     await coordinator.async_setup()
     entry.runtime_data = coordinator
+
+    # Register every discovered device explicitly. A device whose only
+    # namespaces are protocol/system internals (e.g. "Vision" — thing +
+    # version_ctrl, both always skipped) has zero entities, and HA only
+    # creates a device record implicitly via an entity's device_info — so
+    # without this, such a device would never appear at all.
+    device_registry = dr.async_get(hass)
+    for device in coordinator.devices.values():
+        device_registry.async_get_or_create(
+            config_entry_id=entry.entry_id,
+            identifiers={(DOMAIN, device.did_str)},
+            name=device.name,
+            manufacturer="Renogy",
+            model=device.sku,
+            sw_version=device.sw_version,
+        )
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 

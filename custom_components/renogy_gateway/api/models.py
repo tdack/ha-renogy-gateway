@@ -109,6 +109,11 @@ class RenogyDevice:
     ctrl_sp_blacklist: frozenset[str] = frozenset()
     """Relative field paths (e.g. 'charger.max_current') the device firmware
     refuses to accept writes for, from driving_mode.ctrl_sp_blacklist."""
+    protocol: str | None = None
+    """Connection type from gwm.get_product (e.g. 'wifi', 'BLE RS485')."""
+    sw_version: str | None = None
+    """Formatted firmware version from a best-effort thing.sw_ver read
+    (e.g. 'V11.5.3'). None if the device doesn't report one."""
 
     @property
     def did(self) -> int:

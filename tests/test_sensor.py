@@ -2,8 +2,9 @@
 
 from unittest.mock import MagicMock
 
-from custom_components.renogy_gateway.api.models import FieldSpec
+from custom_components.renogy_gateway.api.models import FieldSpec, RenogyDevice
 from custom_components.renogy_gateway.sensor import (
+    RenogyConnectionTypeSensor,
     RenogyEnumSensor,
     RenogySensor,
     _is_enum_sensor,
@@ -146,3 +147,26 @@ async def test_milliamp_sensor_normalised_to_amps(
 
     sensor._handle_telemetry(1399.98999)
     assert round(sensor.native_value, 5) == 1.39999
+
+
+def test_connection_type_sensor_for_metadata_only_device() -> None:
+    """Real-world regression: "Vision" has no controllable/telemetry fields
+    at all, so it needs at least one entity to appear as an HA device. This
+    static sensor carries the connection protocol from gwm.get_product."""
+    vision = RenogyDevice(
+        did_str="4646428229905819205",
+        pid="002C0000",
+        sku="",
+        name="Vision",
+        online=True,
+        fields=[],
+        protocol="wifi",
+        sw_version="V11.5.3",
+    )
+
+    sensor = RenogyConnectionTypeSensor(vision)
+
+    assert sensor.native_value == "wifi"
+    assert sensor.entity_category == EntityCategory.DIAGNOSTIC
+    assert sensor.available is True
+    assert sensor.unique_id == "renogy_4646428229905819205_protocol"
