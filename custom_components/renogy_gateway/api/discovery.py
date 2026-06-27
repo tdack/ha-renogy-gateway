@@ -335,7 +335,16 @@ class RenogyDiscovery:
     async def _get_user_labels(self, did_str: str) -> dict[str, str]:
         """Read userdata_str.config and return {channel_key: label}.
 
-        The RTM response data is a double-encoded JSON string — parse twice.
+        The RTM response data is a JSON-encoded string (sometimes
+        double-encoded — parse up to twice). Confirmed shape via a real
+        capture (captures/*.har in the sibling renogy-gateway repo) and
+        packages/core/src/types.ts's ChannelConfig there:
+        `{"distribution_box.dc_10a_1": {"name": "Bedroom Light",
+        "channelEnable": true, "controlMode": 0, "icon": "...", ...}, ...}`
+        — namespace-qualified keys, object values with a `name` field, NOT
+        bare `{"dc_10a_1": "Bedroom Light"}` as PROTOCOL.md's prose
+        description implied. An unset name reads back as the placeholder
+        "--", not absent.
         """
         sp = f"{did_str}/userdata_str.config"
         try:
@@ -360,8 +369,16 @@ class RenogyDiscovery:
             if not isinstance(inner, dict):
                 return {}
 
-            # The map has channel keys directly: {"dc_10a_1": "Bedroom Light", ...}
-            return {k: v for k, v in inner.items() if isinstance(v, str) and v}
+            labels: dict[str, str] = {}
+            for key, value in inner.items():
+                if not isinstance(value, dict):
+                    continue
+                name = value.get("name")
+                if not isinstance(name, str) or not name or name == "--":
+                    continue  # unset — the schema's default/humanized name wins
+                channel_key = key.split(".", 1)[-1]  # strip "<namespace>." prefix
+                labels[channel_key] = name
+            return labels
         except (json.JSONDecodeError, TypeError):
             _LOGGER.debug("Failed to parse userdata_str.config for %s", did_str)
             return {}

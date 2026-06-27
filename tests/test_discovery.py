@@ -55,8 +55,15 @@ async def test_apply_labels_sets_user_label() -> None:
 
 
 async def test_user_label_double_parse() -> None:
-    """userdata_str.config is double-encoded JSON — must parse twice."""
-    inner_dict = {"dc_10a_1": "Bedroom Light", "relay_3": "Cooling Fan"}
+    """userdata_str.config is sometimes double-encoded JSON — must handle
+    parsing it twice. Real shape confirmed via captures/*.har in the sibling
+    renogy-gateway repo: namespace-qualified keys
+    ("distribution_box.dc_10a_1"), object values with a "name" field —
+    NOT bare {"dc_10a_1": "Bedroom Light"} as PROTOCOL.md's prose implied."""
+    inner_dict = {
+        "distribution_box.dc_10a_1": {"name": "Bedroom Light", "channelEnable": True},
+        "distribution_box.relay_3": {"name": "Cooling Fan", "channelEnable": True},
+    }
     inner_str = json.dumps(inner_dict)
     outer_str = json.dumps(inner_str)
 
@@ -65,19 +72,43 @@ async def test_user_label_double_parse() -> None:
 
     discovery = RenogyDiscovery(rtm)
     labels = await discovery._get_user_labels("123")
-    assert labels == inner_dict
+    assert labels == {"dc_10a_1": "Bedroom Light", "relay_3": "Cooling Fan"}
 
 
 async def test_user_label_already_single_parsed() -> None:
     """If data is already a dict (single parse), handle gracefully."""
-    inner_dict = {"dc_10a_1": "Bedroom Light"}
+    inner_dict = {
+        "distribution_box.dc_10a_1": {"name": "Bedroom Light", "channelEnable": True}
+    }
 
     rtm = MagicMock()
     rtm.read = AsyncMock(return_value=inner_dict)
 
     discovery = RenogyDiscovery(rtm)
     labels = await discovery._get_user_labels("123")
-    assert labels == inner_dict
+    assert labels == {"dc_10a_1": "Bedroom Light"}
+
+
+async def test_user_label_real_capture_payload() -> None:
+    """Exact payload captured live (captures/*.har), single-JSON-encoded
+    (not double, despite PROTOCOL.md describing it that way) — exercises
+    icon/controlMode fields being ignored and the "--" placeholder being
+    treated as unset rather than a literal channel name."""
+    raw = (
+        '{"distribution_box.ai_1": {"channelEnable": true, "name": "Front", '
+        '"tankUsage": 0}, "distribution_box.ai_2": {"channelEnable": true, '
+        '"name": "--", "tankUsage": 0}, "distribution_box.dc_10a_1": '
+        '{"channelEnable": true, "controlMode": 0, "icon": "##ic_courtesy_light##", '
+        '"name": "Bedroom Light", "showCurrent": false, "showPower": false}}'
+    )
+    rtm = MagicMock()
+    rtm.read = AsyncMock(return_value=raw)
+
+    discovery = RenogyDiscovery(rtm)
+    labels = await discovery._get_user_labels("123")
+
+    assert labels == {"ai_1": "Front", "dc_10a_1": "Bedroom Light"}
+    assert "ai_2" not in labels  # "--" placeholder == unset
 
 
 async def test_user_label_parse_failure_returns_empty() -> None:
