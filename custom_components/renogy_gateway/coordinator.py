@@ -201,10 +201,11 @@ class RenogyCoordinator:
 
         The schema advertises every tank/temp-probe/TPMS slot a model
         supports, whether or not this specific rig has that sensor wired up.
-        An unbound slot still answers reads (e.g. a default pressure value),
-        so it can't be told apart by readability alone — only by checking
-        whether *any* of its fields produced a real value during the
-        initial seed read.
+        Settings-type fields (calibration_pressure, alarm thresholds,
+        axle_num, ...) answer with a stable firmware default even for an
+        unbound slot, so liveness must be judged from genuine *readings*
+        (non-writable fields) only — a writable field's default value would
+        otherwise make every unbound slot look live.
         """
         for device in self.devices.values():
             by_instance: dict[str, list[FieldSpec]] = {}
@@ -219,7 +220,10 @@ class RenogyCoordinator:
             live_fields = [
                 f
                 for fields in by_instance.values()
-                if any(self._last_values.get(f.sp) is not None for f in fields)
+                if any(
+                    not f.writable and self._last_values.get(f.sp) is not None
+                    for f in fields
+                )
                 for f in fields
             ]
             device.fields = other_fields + live_fields

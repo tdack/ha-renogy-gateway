@@ -55,8 +55,19 @@ _ENTITY_TYPES = frozenset({1, 2, 3})  # bool, int, float
 # Leaves the schema marks writable (ops includes the write bit) but which are
 # actually just a reading, not a setting — the schema marks almost every
 # field writable, including protocol internals, so `ops` alone isn't a
-# reliable signal here.
+# reliable signal here. Global because no namespace legitimately has a
+# writable bare "voltage" control.
 _FORCE_READONLY_LEAVES = frozenset({"voltage"})
+
+# Same idea, but scoped to a namespace because the leaf name is reused
+# elsewhere for a genuine control — e.g. "state" is the real writable
+# on/off field for distribution_box channels, but PROTOCOL.md §6 documents
+# tpms.tp_state_N.{pressure,temperature,battery_status,online,state} as pure
+# readings, and on some rigs the schema marks several of them writable
+# anyway (observed live: pressure, online).
+_FORCE_READONLY_LEAVES_BY_NAMESPACE: dict[str, frozenset[str]] = {
+    "tpms": frozenset({"pressure", "temperature", "battery_status", "online", "state"}),
+}
 
 # Maximum concurrent RPCs to avoid overwhelming the gateway
 _MAX_CONCURRENT = 4
@@ -231,7 +242,9 @@ class RenogyDiscovery:
         leaf = full_name.rsplit(".", 1)[-1]
         if leaf in HIDE_LEAVES:
             return []  # protocol internal / maintenance command, not a setting
-        if leaf in _FORCE_READONLY_LEAVES:
+        if leaf in _FORCE_READONLY_LEAVES or leaf in _FORCE_READONLY_LEAVES_BY_NAMESPACE.get(
+            namespace, frozenset()
+        ):
             ops &= ~1  # strip the write bit — a reading, not a setting
 
         sp = f"{did_str}/{namespace}.{full_name}"

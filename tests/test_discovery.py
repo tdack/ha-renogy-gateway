@@ -195,6 +195,55 @@ async def test_tpms_pressure_ops5_is_not_writable() -> None:
     assert pressure.subscribable is True
 
 
+async def test_tpms_readings_force_readonly_even_with_full_ops() -> None:
+    """Real-world regression: on some rigs the schema marks TPMS pressure,
+    online, and the tyre-status enum (leaf 'state') with ops=7 (the full
+    write+read+subscribe bitmask) despite PROTOCOL.md §6 documenting
+    tpms.tp_state_N.{pressure,temperature,battery_status,online,state} as
+    pure readings. The ops=5 fix alone doesn't cover this — these need an
+    explicit, namespace-scoped override (see _FORCE_READONLY_LEAVES_BY_NAMESPACE)."""
+    rtm = MagicMock()
+    rtm.rpc = AsyncMock(
+        side_effect=[
+            {"sps": [{"name": "tp_state_1", "type": 7, "ref": "tpms_state"}]},
+            {
+                "sps": [
+                    {"name": "pressure", "type": 3, "ops": 7, "unit": "kPa"},
+                    {"name": "online", "type": 1, "ops": 7},
+                    {
+                        "name": "state",
+                        "type": 2,
+                        "ops": 7,
+                        "options": [{"key": 0, "value": "Normal"}],
+                    },
+                ]
+            },
+        ]
+    )
+
+    discovery = RenogyDiscovery(rtm)
+    fields = await discovery._get_fields("456", "tpms")
+
+    by_name = {f.name: f for f in fields}
+    assert by_name["tp_state_1.pressure"].writable is False
+    assert by_name["tp_state_1.online"].writable is False
+    assert by_name["tp_state_1.state"].writable is False
+
+
+async def test_distribution_box_state_leaf_unaffected_by_tpms_override() -> None:
+    """The tpms-scoped 'state' override must not leak into other namespaces —
+    distribution_box channel '.state' is the real writable on/off control."""
+    rtm = MagicMock()
+    rtm.rpc = AsyncMock(
+        return_value={"sps": [{"name": "dc_10a_1.state", "type": 1, "ops": 7}]}
+    )
+
+    discovery = RenogyDiscovery(rtm)
+    fields = await discovery._get_fields("123", "distribution_box")
+
+    assert fields[0].writable is True
+
+
 async def test_get_fields_ref_cycle_guard() -> None:
     """A self-referencing model does not recurse forever."""
     rtm = MagicMock()

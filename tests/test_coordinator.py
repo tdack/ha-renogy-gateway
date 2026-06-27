@@ -94,3 +94,53 @@ async def test_drop_phantom_instances_removes_dead_slots(
     coordinator._drop_phantom_instances()
 
     assert {f.sp for f in device.fields} == {live_field.sp, other_field.sp}
+
+
+async def test_drop_phantom_instances_ignores_writable_setting_defaults(
+    hass: HomeAssistant,
+    mock_config_entry,
+) -> None:
+    """Real-world regression: an unbound TPMS slot's settings (calibration
+    pressure, alarm thresholds, axle_num, ...) answer with a stable firmware
+    default even with no physical sensor paired, while the actual readings
+    (pressure, online, ...) stay unset. Liveness must come from a reading,
+    not a writable setting's default — otherwise every unbound slot looks
+    live forever."""
+    mock_config_entry.add_to_hass(hass)
+    coordinator = RenogyCoordinator(hass, mock_config_entry)
+
+    unbound_reading = FieldSpec(
+        sp="123/tpms.tp_state_3.pressure",
+        name="tp_state_3.pressure",
+        field_type=3,
+        ops=6,  # read + subscribe, not writable (post ops-fix)
+    )
+    unbound_setting_with_default = FieldSpec(
+        sp="123/tpms.tp_state_3.calibration_pressure",
+        name="tp_state_3.calibration_pressure",
+        field_type=3,
+        ops=7,  # writable — answers with a firmware default regardless
+    )
+    bound_reading = FieldSpec(
+        sp="123/tpms.tp_state_1.pressure",
+        name="tp_state_1.pressure",
+        field_type=3,
+        ops=6,
+    )
+    device = RenogyDevice(
+        did_str="123",
+        pid="p",
+        sku="s",
+        name="n",
+        online=True,
+        fields=[unbound_reading, unbound_setting_with_default, bound_reading],
+    )
+    coordinator.devices = {"123": device}
+    coordinator._last_values = {
+        unbound_setting_with_default.sp: 430.0,  # default, even though unbound
+        bound_reading.sp: 215.0,
+    }
+
+    coordinator._drop_phantom_instances()
+
+    assert {f.sp for f in device.fields} == {bound_reading.sp}
