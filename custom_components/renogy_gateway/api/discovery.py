@@ -56,18 +56,56 @@ _ENTITY_TYPES = frozenset({1, 2, 3})  # bool, int, float
 # actually just a reading, not a setting — the schema marks almost every
 # field writable, including protocol internals, so `ops` alone isn't a
 # reliable signal here. Global because no namespace legitimately has a
-# writable bare "voltage" control.
-_FORCE_READONLY_LEAVES = frozenset({"voltage"})
+# writable control under any of these names. Matched case-insensitively: a
+# real capture (captures/*.har in the sibling renogy-gateway repo) shows the
+# same quantity under inconsistently-cased leaf names on the same device
+# (e.g. "voltage" alongside "battery_input.Voltage"), so an exact-case
+# match alone misses half of them.
+_FORCE_READONLY_LEAVES = frozenset(
+    {
+        "voltage",
+        # Inverter (RIV1230RCH-24S) AC measurement leaves — packages/core/src/
+        # registry.ts hardcodes these exact names as a fallback because no
+        # capture ever shows gwm.get_model called for ac_input/ac_output/
+        # battery_input; the dashboard's own human-curated labels confirm
+        # they're pure readings ("AC input voltage", "AC input current",
+        # "AC output power", "Battery input voltage").
+        "ac_input_voltage",
+        "ac_input_current",
+        "ac_input_frequency",
+        "output_watts",
+    }
+)
 
-# Same idea, but scoped to a namespace because the leaf name is reused
-# elsewhere for a genuine control — e.g. "state" is the real writable
-# on/off field for distribution_box channels, but PROTOCOL.md §6 documents
-# tpms.tp_state_N.{pressure,temperature,battery_status,online,state} as pure
-# readings, and on some rigs the schema marks several of them writable
-# anyway (observed live: pressure, online).
+# Leaf SUFFIXES that are always a reading regardless of case. Confirmed live
+# in captures/*.har: every lowercase "_today" daily accumulator in the
+# inverter's inverter_history model (bat_chg_ah_today, bat_dischg_ah_today,
+# generat_energy_today, used_energy_today, load_consum_line_today,
+# line_chg_energy_today) reports ops=[1,2,4,5,7] — the literal write bit
+# genuinely present, despite being a counter no one would ever "set".
+_FORCE_READONLY_SUFFIXES = ("_today",)
+
+# Same idea as _FORCE_READONLY_LEAVES, but scoped to a namespace because the
+# leaf name is reused elsewhere for a genuine control — e.g. "state" is the
+# real writable on/off field for distribution_box channels, but PROTOCOL.md
+# §6 documents tpms.tp_state_N.{pressure,temperature,battery_status,online,
+# state} as pure readings, and on some rigs the schema marks several of them
+# writable anyway (observed live: pressure, online).
 _FORCE_READONLY_LEAVES_BY_NAMESPACE: dict[str, frozenset[str]] = {
     "tpms": frozenset({"pressure", "temperature", "battery_status", "online", "state"}),
 }
+
+
+def _is_force_readonly(namespace: str, leaf: str) -> bool:
+    """Return True if this (namespace, leaf) must be read-only regardless of
+    what the schema's `ops` reports — see the constants above for evidence."""
+    leaf_lower = leaf.lower()
+    if leaf_lower in _FORCE_READONLY_LEAVES:
+        return True
+    if leaf_lower.endswith(_FORCE_READONLY_SUFFIXES):
+        return True
+    namespace_leaves = _FORCE_READONLY_LEAVES_BY_NAMESPACE.get(namespace, frozenset())
+    return leaf_lower in {v.lower() for v in namespace_leaves}
 
 # Maximum concurrent RPCs to avoid overwhelming the gateway
 _MAX_CONCURRENT = 4
@@ -242,9 +280,7 @@ class RenogyDiscovery:
         leaf = full_name.rsplit(".", 1)[-1]
         if leaf in HIDE_LEAVES:
             return []  # protocol internal / maintenance command, not a setting
-        if leaf in _FORCE_READONLY_LEAVES or leaf in _FORCE_READONLY_LEAVES_BY_NAMESPACE.get(
-            namespace, frozenset()
-        ):
+        if _is_force_readonly(namespace, leaf):
             ops &= ~1  # strip the write bit — a reading, not a setting
 
         sp = f"{did_str}/{namespace}.{full_name}"
@@ -367,30 +403,44 @@ def _parse_ops(ops_raw: Any) -> int:
     """Convert raw `ops` (an int, or a list of recognized op codes) into our
     internal {1: write, 2: read, 4: subscribe} bitmask.
 
-    `ops` is NOT a generic bitmask to OR together — 5 is a specific composite
-    code meaning "read + subscribe, NOT write" despite 5 == 4+1 in binary
-    (PROTOCOL.md §7.3: "4 = subscribe (5/7 also seen)"). Mirrors
-    packages/core/src/discovery.ts's opsToCaps in the sibling renogy-gateway
-    repo exactly: `writable` only ever fires for the literal value 1; `5`
-    explicitly adds read+subscribe but never write. Naively OR-ing raw
-    integers (5 → bits 0+2 set) misread ops=5 as writable, which is how pure
-    sensor readings (TPMS pressure, shunt SOC, tank ratio, ...) were
-    surfacing as Number/Select entities instead of sensors.
+    Real wire data (captures/*.har in the sibling renogy-gateway repo) always
+    sends `ops` as a LIST of recognized codes drawn from {1,2,4,5,7} — never
+    a bare combined integer. 5 and 7 are specific composite codes meaning
+    "read + subscribe" (PROTOCOL.md §7.3: "4 = subscribe (5/7 also seen)");
+    `write` is contributed ONLY by the literal code 1 being separately
+    present in that list, never implied by decomposing 5 or 7 — mirroring
+    packages/core/src/discovery.ts's opsToCaps exactly:
+    `writable: o.some(v => v === OP_WRITE)` checks for literal 1 only.
+
+    Confirmed against a real capture: the inverter's `Bat_Chg_Energy`
+    reports ops=[2,4,5,7] (no literal 1) and is genuinely read-only, while
+    `dc_output_ext.state` (PROTOCOL.md §7.4) reports ops=[1,2,4,5,7]
+    (literal 1 present alongside 5/7) and is genuinely writable. Naively
+    OR-ing raw integers together (decomposing 7 -> bits 0+1+2) sets the
+    write bit from the literal value 7 alone — that's how pure sensor
+    readings (TPMS pressure, shunt SOC, tank ratio, AC input current/
+    voltage, daily energy counters, ...) were surfacing as Number/Select
+    entities instead of sensors.
+
+    A bare int is a test-fixture convenience only (real data is always a
+    list) and is decomposed as a plain bitmask EXCEPT for 5/7, which get the
+    same non-write treatment as in the list form, for consistency.
     """
     if isinstance(ops_raw, int):
-        values = [ops_raw]
-    elif isinstance(ops_raw, list):
-        values = [int(v) for v in ops_raw]
-    else:
-        return 0
-
-    mask = 0
-    for v in values:
-        if v == 5:
-            mask |= 2 | 4  # read + subscribe, deliberately NOT write
-        else:
-            mask |= v
-    return mask
+        if ops_raw in (5, 7):
+            return 2 | 4
+        return ops_raw
+    if isinstance(ops_raw, list):
+        values = {int(v) for v in ops_raw}
+        mask = 0
+        if values & {2, 5, 7}:
+            mask |= 2  # read
+        if values & {4, 5, 7}:
+            mask |= 4  # subscribe
+        if 1 in values:
+            mask |= 1  # write — ONLY from the literal code, never decomposed
+        return mask
+    return 0
 
 
 def _to_float(v: Any) -> float | None:

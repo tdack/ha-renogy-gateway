@@ -9,5 +9,5 @@
   "issue_tracker": "https://github.com/tdack/ha-renogy-gateway/issues",
   "loggers": ["custom_components.renogy_gateway"],
   "requirements": [],
-  "version": "0.2.6"
+  "version": "0.2.7"
 }

@@ -160,9 +160,18 @@ async def test_voltage_leaf_forced_readonly() -> None:
         # writable by a naive bitwise OR, surfacing them as Configuration
         # (Number) entities instead of sensors.
         (5, {"writable": False, "readable": True, "subscribable": True}),
-        (7, {"writable": True, "readable": True, "subscribable": True}),
-        ([1, 2, 4, 5, 7], {"writable": True, "readable": True, "subscribable": True}),
+        # 7 gets the same treatment as 5 — it's also just "read + subscribe"
+        # unless the literal write code 1 is separately present. Confirmed
+        # against a real capture: the inverter's Bat_Chg_Energy reports
+        # ops=[2,4,5,7] (no literal 1) and is genuinely read-only.
+        (7, {"writable": False, "readable": True, "subscribable": True}),
+        (
+            [1, 2, 4, 5, 7],
+            {"writable": True, "readable": True, "subscribable": True},
+        ),  # PROTOCOL.md §7.4's dc_output_ext.state example — literal 1 present
+        ([2, 4, 5, 7], {"writable": False, "readable": True, "subscribable": True}),
         ([5], {"writable": False, "readable": True, "subscribable": True}),
+        ([7], {"writable": False, "readable": True, "subscribable": True}),
     ],
 )
 def test_parse_ops_matches_dashboard_semantics(
@@ -232,16 +241,89 @@ async def test_tpms_readings_force_readonly_even_with_full_ops() -> None:
 
 async def test_distribution_box_state_leaf_unaffected_by_tpms_override() -> None:
     """The tpms-scoped 'state' override must not leak into other namespaces —
-    distribution_box channel '.state' is the real writable on/off control."""
+    distribution_box channel '.state' is the real writable on/off control.
+
+    ops is the real PROTOCOL.md §7.4 example for dc_output_ext.state: the
+    literal write code 1 must be present alongside 5/7 for writable to be
+    True — see _parse_ops's docstring for why a bare "7" alone wouldn't do.
+    """
     rtm = MagicMock()
     rtm.rpc = AsyncMock(
-        return_value={"sps": [{"name": "dc_10a_1.state", "type": 1, "ops": 7}]}
+        return_value={
+            "sps": [{"name": "dc_10a_1.state", "type": 1, "ops": [1, 2, 4, 5, 7]}]
+        }
     )
 
     discovery = RenogyDiscovery(rtm)
     fields = await discovery._get_fields("123", "distribution_box")
 
     assert fields[0].writable is True
+
+
+async def test_force_readonly_leaf_match_is_case_insensitive() -> None:
+    """Real-world capture (captures/*.har in the sibling renogy-gateway repo):
+    the same inverter reports both lowercase "voltage" and capitalised
+    "battery_input.Voltage" for equivalent quantities — an exact-case-only
+    match misses the latter, which is why it showed up as a duplicate,
+    unconverted entity instead of being treated the same as "voltage"."""
+    rtm = MagicMock()
+    rtm.rpc = AsyncMock(
+        return_value={"sps": [{"name": "Voltage", "type": 3, "ops": 7, "unit": "V"}]}
+    )
+
+    discovery = RenogyDiscovery(rtm)
+    fields = await discovery._get_fields("123", "battery_input")
+
+    assert fields[0].writable is False
+
+
+async def test_inverter_today_counters_force_readonly() -> None:
+    """Confirmed live in captures/*.har: the inverter_history model's
+    lowercase "_today" daily accumulators report ops=[1,2,4,5,7] — the
+    literal write bit genuinely present — despite being counters no one
+    would ever set (bat_chg_ah_today, generat_energy_today, etc.)."""
+    rtm = MagicMock()
+    rtm.rpc = AsyncMock(
+        return_value={
+            "sps": [
+                {"name": "bat_chg_ah_today", "type": 2, "ops": [1, 2, 4, 5, 7]},
+                {"name": "generat_energy_today", "type": 3, "ops": [1, 2, 4, 5, 7]},
+                {"name": "Bat_Chg_Energy", "type": 2, "ops": [2, 4, 5, 7]},
+            ]
+        }
+    )
+
+    discovery = RenogyDiscovery(rtm)
+    fields = await discovery._get_fields("123", "inverter_history")
+
+    by_name = {f.name: f for f in fields}
+    assert by_name["bat_chg_ah_today"].writable is False
+    assert by_name["generat_energy_today"].writable is False
+    assert by_name["Bat_Chg_Energy"].writable is False  # already correct (no literal 1)
+
+
+async def test_inverter_ac_input_readings_force_readonly() -> None:
+    """packages/core/src/registry.ts hardcodes ac_input.AC_input_Voltage /
+    AC_input_current as a fallback for this exact inverter model (RIV1230RCH
+    -24S) because no capture ever shows gwm.get_model called for ac_input —
+    the dashboard's own human-curated labels ("AC input voltage", "AC input
+    current") confirm these are pure readings."""
+    rtm = MagicMock()
+    rtm.rpc = AsyncMock(
+        return_value={
+            "sps": [
+                {"name": "AC_input_Voltage", "type": 3, "ops": 7, "unit": "V"},
+                {"name": "AC_input_current", "type": 3, "ops": 7, "unit": "A"},
+            ]
+        }
+    )
+
+    discovery = RenogyDiscovery(rtm)
+    fields = await discovery._get_fields("123", "ac_input")
+
+    by_name = {f.name: f for f in fields}
+    assert by_name["AC_input_Voltage"].writable is False
+    assert by_name["AC_input_current"].writable is False
 
 
 async def test_get_fields_ref_cycle_guard() -> None:
