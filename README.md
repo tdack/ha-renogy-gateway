@@ -54,6 +54,15 @@ remove the repository from HACS if you no longer want updates.
 This is a community project maintained on a best-effort basis. Please file
 issues at the [GitHub issue tracker](https://github.com/tdack/ha-renogy-gateway/issues).
 
+## Protocol documentation
+
+[`docs/PROTOCOL.md`](docs/PROTOCOL.md) documents the reverse-engineered
+private gateway/RTM API this integration talks to — auth, the WebSocket
+telemetry/control protocol, and the self-describing schema discovery
+(`gwm.devs`/`get_product`/`get_model`) that drives entity creation here.
+Useful background if you're debugging an issue or curious how a given
+device's fields end up as the entities they do.
+
 ## Icon / branding
 
 This integration uses Renogy's own brand icon/logo (the same images
