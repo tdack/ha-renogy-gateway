@@ -235,6 +235,52 @@ async def test_tpms_pressure_ops5_is_not_writable() -> None:
     assert pressure.subscribable is True
 
 
+async def test_tank_ratio_and_connected_are_sensors_with_real_schema() -> None:
+    """Real-world regression: tank fill-level (ai_N.ratio) and connectivity
+    (ai_N.connected) were showing up as Configuration/missing instead of
+    sensors. Confirmed via a real capture (captures/*.har in the sibling
+    renogy-gateway repo) that analog_input_r.ratio reports ops=[2,4,5,7] —
+    no literal write bit — same shape as the TPMS/inverter fields the
+    ops=7 fix (v0.2.7) already covers. Locks in that fix for tanks too,
+    using the exact captured schema."""
+    rtm = MagicMock()
+    rtm.rpc = AsyncMock(
+        return_value={
+            "sps": [
+                {"name": "ratio", "type": 2, "ops": [2, 4, 5, 7], "unit": "%", "min": 0, "max": 100},
+                {
+                    "name": "mode",
+                    "type": 2,
+                    "ops": [1, 2, 4, 5],
+                    "options": [
+                        {"key": 1, "value": "2 Lines"},
+                        {"key": 2, "value": "5 Lines"},
+                        {"key": 3, "value": "comworks"},
+                    ],
+                },
+                {"name": "connected", "type": 1, "ops": [2, 4, 5, 7]},
+                {
+                    "name": "alarm_lower_threshold",
+                    "type": 2,
+                    "ops": [1, 2, 4, 5, 7],
+                    "unit": "%",
+                    "min": -1,
+                    "max": 101,
+                },
+            ]
+        }
+    )
+
+    discovery = RenogyDiscovery(rtm)
+    fields = await discovery._get_fields("123", "analog_input_r")
+
+    by_name = {f.name: f for f in fields}
+    assert by_name["ratio"].writable is False  # -> sensor.py's RenogySensor
+    assert by_name["connected"].writable is False  # -> binary_sensor.py
+    assert by_name["mode"].writable is True  # genuine setting -> select.py
+    assert by_name["alarm_lower_threshold"].writable is True  # -> number.py
+
+
 async def test_tpms_readings_force_readonly_even_with_full_ops() -> None:
     """Real-world regression: on some rigs the schema marks TPMS pressure,
     online, and the tyre-status enum (leaf 'state') with ops=7 (the full
