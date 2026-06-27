@@ -98,6 +98,29 @@ FIELD_SOC_RULE = FieldSpec(
     options=[{"key": 0, "value": "Low (20%)"}, {"key": 1, "value": "Medium (50%)"}],
 )
 
+# Sensor field reported in milliamps — should display in amps (real-world
+# regression: an inverter's AC input current showed as "1399.98999 mA"
+# instead of being normalised alongside other current sensors in "A").
+FIELD_AC_CURRENT_MA = FieldSpec(
+    sp="4766577127497453285/ac_input.current",
+    name="current",
+    field_type=3,
+    ops=6,
+    unit="mA",
+)
+
+# Writable field reported in millivolts, with no schema precision — should
+# both scale to volts and cap its displayed/step precision at 2dp.
+FIELD_DESIRED_VOLTAGE_MV = FieldSpec(
+    sp="4766577127497453285/charger.desired_voltage",
+    name="desired_voltage",
+    field_type=3,
+    ops=7,
+    unit="mV",
+    min_value=12000.0,
+    max_value=15000.0,
+)
+
 # Binary sensor field (read-only bool)
 FIELD_ONLINE = FieldSpec(
     sp="4623589794012005944/thing.online",
@@ -158,6 +181,15 @@ MOCK_CHARGER_DEVICE = RenogyDevice(
     name="PV Charger",
     online=True,
     fields=[FIELD_CHARGE_VOLTAGE],
+)
+
+MOCK_INVERTER_DEVICE = RenogyDevice(
+    did_str="4766577127497453285",
+    pid="000F003C",
+    sku="RIV1230RCH-24S",
+    name="Inverter/Charger",
+    online=False,
+    fields=[FIELD_AC_CURRENT_MA, FIELD_DESIRED_VOLTAGE_MV],
 )
 
 MOCK_TPMS_DEVICE = RenogyDevice(
@@ -224,6 +256,7 @@ def mock_coordinator() -> MagicMock:
         MOCK_BOX_DEVICE.did_str: MOCK_BOX_DEVICE,
         MOCK_CHARGER_DEVICE.did_str: MOCK_CHARGER_DEVICE,
         MOCK_TPMS_DEVICE.did_str: MOCK_TPMS_DEVICE,
+        MOCK_INVERTER_DEVICE.did_str: MOCK_INVERTER_DEVICE,
     }
     coord.scenes = {
         MOCK_MANUAL_SCENE.id: MOCK_MANUAL_SCENE,

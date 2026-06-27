@@ -24,18 +24,37 @@ from .entity import RenogyBaseEntity
 
 PARALLEL_UPDATES = 0
 
-# Renogy unit string → (HA unit, SensorDeviceClass)
-_UNIT_MAP: dict[str, tuple[str, SensorDeviceClass | None]] = {
-    "W": (UnitOfPower.WATT, SensorDeviceClass.POWER),
-    "kW": (UnitOfPower.KILO_WATT, SensorDeviceClass.POWER),
-    "V": (UnitOfElectricPotential.VOLT, SensorDeviceClass.VOLTAGE),
-    "A": (UnitOfElectricCurrent.AMPERE, SensorDeviceClass.CURRENT),
-    "kWh": (UnitOfEnergy.KILO_WATT_HOUR, SensorDeviceClass.ENERGY),
-    "Wh": (UnitOfEnergy.WATT_HOUR, SensorDeviceClass.ENERGY),
-    "°C": (UnitOfTemperature.CELSIUS, SensorDeviceClass.TEMPERATURE),
-    "℃": (UnitOfTemperature.CELSIUS, SensorDeviceClass.TEMPERATURE),
-    "kPa": (UnitOfPressure.KPA, SensorDeviceClass.PRESSURE),
+# Renogy unit string → (HA unit, SensorDeviceClass, scale to convert the raw
+# wire value into that HA unit). Milli-prefixed units exist on some devices
+# (e.g. an inverter reporting AC input current in "mA") alongside other
+# fields already in "A" — scale them down so every entity of a given
+# device_class shares one consistent base unit instead of mixing prefixes.
+_UNIT_MAP: dict[str, tuple[str, SensorDeviceClass | None, float]] = {
+    "W": (UnitOfPower.WATT, SensorDeviceClass.POWER, 1.0),
+    "kW": (UnitOfPower.KILO_WATT, SensorDeviceClass.POWER, 1.0),
+    "mW": (UnitOfPower.WATT, SensorDeviceClass.POWER, 0.001),
+    "V": (UnitOfElectricPotential.VOLT, SensorDeviceClass.VOLTAGE, 1.0),
+    "mV": (UnitOfElectricPotential.VOLT, SensorDeviceClass.VOLTAGE, 0.001),
+    "A": (UnitOfElectricCurrent.AMPERE, SensorDeviceClass.CURRENT, 1.0),
+    "mA": (UnitOfElectricCurrent.AMPERE, SensorDeviceClass.CURRENT, 0.001),
+    "kWh": (UnitOfEnergy.KILO_WATT_HOUR, SensorDeviceClass.ENERGY, 1.0),
+    "Wh": (UnitOfEnergy.WATT_HOUR, SensorDeviceClass.ENERGY, 1.0),
+    "°C": (UnitOfTemperature.CELSIUS, SensorDeviceClass.TEMPERATURE, 1.0),
+    "℃": (UnitOfTemperature.CELSIUS, SensorDeviceClass.TEMPERATURE, 1.0),
+    "kPa": (UnitOfPressure.KPA, SensorDeviceClass.PRESSURE, 1.0),
 }
+
+# Decimal places to show when the schema doesn't specify a usable precision
+# (0 or absent) for a float-valued field. Integer fields never get a display
+# precision — there's nothing to round.
+_DEFAULT_FLOAT_PRECISION = 2
+
+
+def _display_precision(field: FieldSpec) -> int | None:
+    """Decimal places to show, capped at 2 (e.g. 14.349999 -> 14.35)."""
+    if field.field_type != 3:  # only floats need rounding
+        return None
+    return min(field.precision, _DEFAULT_FLOAT_PRECISION) if field.precision else _DEFAULT_FLOAT_PRECISION
 
 
 def _is_sensor(field: FieldSpec) -> bool:
@@ -87,21 +106,30 @@ class RenogySensor(RenogyBaseEntity, SensorEntity):
     ) -> None:
         """Initialize the sensor entity with unit and device class from the field spec."""
         super().__init__(coordinator, device, field)
+        self._scale = 1.0
         unit_entry = _UNIT_MAP.get(field.unit or "")
         if unit_entry:
             self._attr_native_unit_of_measurement = unit_entry[0]
             self._attr_device_class = unit_entry[1]
+            self._scale = unit_entry[2]
         elif field.unit:
             self._attr_native_unit_of_measurement = field.unit
         self._attr_state_class = SensorStateClass.MEASUREMENT
-        self._attr_suggested_display_precision = field.precision or None
+        self._attr_suggested_display_precision = _display_precision(field)
         if is_diagnostic_field(field.sp):
             self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
     @property
     def native_value(self) -> float | int | None:
-        """Return the latest telemetry value."""
-        return self._value
+        """Return the latest telemetry value, scaled to the displayed unit."""
+        if self._value is None:
+            return None
+        if self._scale == 1.0:
+            return self._value
+        try:
+            return float(self._value) * self._scale
+        except (TypeError, ValueError):
+            return None
 
 
 class RenogyEnumSensor(RenogyBaseEntity, SensorEntity):

@@ -8,7 +8,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from .api.models import FieldSpec, RenogyDevice
 from .coordinator import RenogyConfigEntry, RenogyCoordinator
 from .entity import RenogyBaseEntity
-from .sensor import _UNIT_MAP
+from .sensor import _UNIT_MAP, _display_precision
 
 PARALLEL_UPDATES = 0
 
@@ -73,35 +73,42 @@ class RenogyNumber(RenogyBaseEntity, NumberEntity):
     ) -> None:
         """Initialize number entity with range and unit from the field spec."""
         super().__init__(coordinator, device, field)
-        # Schema bounds are an optional hint, not a precondition (see
-        # _is_number). Fall back to a generous unbounded-ish range rather
-        # than clamping an unbounded field to HA's 0-100 default.
-        self._attr_native_min_value = (
-            field.min_value if field.min_value is not None else -1_000_000.0
-        )
-        self._attr_native_max_value = (
-            field.max_value if field.max_value is not None else 1_000_000.0
-        )
-        self._attr_native_step = (
-            10 ** (-field.precision) if field.precision > 0 else 1.0
-        )
+        self._scale = 1.0
         unit_entry = _UNIT_MAP.get(field.unit or "")
         if unit_entry:
             self._attr_native_unit_of_measurement = unit_entry[0]
+            self._scale = unit_entry[2]
         elif field.unit:
             self._attr_native_unit_of_measurement = field.unit
 
+        # Schema bounds are an optional hint, not a precondition (see
+        # _is_number). Fall back to a generous unbounded-ish range rather
+        # than clamping an unbounded field to HA's 0-100 default. Bounds are
+        # in the same raw wire units as the value, so scale them together.
+        self._attr_native_min_value = (
+            field.min_value * self._scale if field.min_value is not None else -1_000_000.0
+        )
+        self._attr_native_max_value = (
+            field.max_value * self._scale if field.max_value is not None else 1_000_000.0
+        )
+        # NumberEntity has no suggested_display_precision (that's a sensor-
+        # only concept) — native_step is what HA rounds the displayed/edited
+        # value to, so it does double duty as the precision control here.
+        precision = _display_precision(field)
+        self._attr_native_step = 10**-precision if precision else 1.0
+
     @property
     def native_value(self) -> float | None:
-        """Return the current numeric value."""
+        """Return the current numeric value, scaled to the displayed unit."""
         if self._value is None:
             return None
         try:
-            return float(self._value)
+            return float(self._value) * self._scale
         except (TypeError, ValueError):
             return None
 
     async def async_set_native_value(self, value: float) -> None:
-        """Write the new value to the field."""
-        payload = int(value) if self._field.field_type == 2 else value
+        """Write the new value to the field, converted back to raw wire units."""
+        raw = value / self._scale
+        payload = int(raw) if self._field.field_type == 2 else raw
         await self._coordinator.async_write(self._field.sp, payload)

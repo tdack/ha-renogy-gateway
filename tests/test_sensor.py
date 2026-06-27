@@ -13,7 +13,15 @@ from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 
-from .conftest import FIELD_SOC, FIELD_SOC_RULE, FIELD_TPMS_STATE, MOCK_SHUNT_DEVICE, MOCK_TPMS_DEVICE
+from .conftest import (
+    FIELD_AC_CURRENT_MA,
+    FIELD_SOC,
+    FIELD_SOC_RULE,
+    FIELD_TPMS_STATE,
+    MOCK_INVERTER_DEVICE,
+    MOCK_SHUNT_DEVICE,
+    MOCK_TPMS_DEVICE,
+)
 
 
 async def test_sensor_state_from_telemetry(
@@ -119,3 +127,22 @@ async def test_sensor_diagnostic_for_status_like_field(
     )
     sensor = RenogySensor(mock_coordinator, MOCK_SHUNT_DEVICE, firmware_field)
     assert sensor.entity_category == EntityCategory.DIAGNOSTIC
+
+
+async def test_milliamp_sensor_normalised_to_amps(
+    hass: HomeAssistant,
+    mock_coordinator,
+) -> None:
+    """A field reported in mA (e.g. an inverter's AC input current) is
+    converted and displayed in A, consistent with other current sensors —
+    real-world regression: "1399.98999 mA" instead of "1.40 A"."""
+    sensor = RenogySensor(mock_coordinator, MOCK_INVERTER_DEVICE, FIELD_AC_CURRENT_MA)
+    sensor.hass = hass
+    sensor.async_write_ha_state = MagicMock()
+
+    assert sensor.native_unit_of_measurement == "A"
+    assert sensor.device_class == SensorDeviceClass.CURRENT
+    assert sensor.suggested_display_precision == 2
+
+    sensor._handle_telemetry(1399.98999)
+    assert round(sensor.native_value, 5) == 1.39999
