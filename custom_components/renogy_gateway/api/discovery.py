@@ -119,6 +119,11 @@ class RenogyDiscovery:
         self._rtm = rtm
         # Cache resolved model schemas: namespace → list of raw sp dicts
         self._model_cache: dict[str, list[dict]] = {}
+        # In-flight get_model fetches: namespace → pending task, so concurrent
+        # callers for the same namespace await one RPC instead of issuing
+        # duplicates (discovery.resolve() gathers devices concurrently and
+        # several devices commonly share a namespace).
+        self._model_inflight: dict[str, asyncio.Task[list[dict]]] = {}
 
     async def discover(self, gateway_did_str: str) -> list[RenogyDevice]:
         """Return fully resolved devices behind the given gateway.
@@ -305,10 +310,25 @@ class RenogyDiscovery:
         ]
 
     async def _get_model(self, namespace: str) -> list[dict]:
-        """Fetch and cache the raw sp list for a namespace (recursive inherit)."""
+        """Fetch and cache the raw sp list for a namespace (recursive inherit).
+
+        Concurrent callers for the same namespace share one in-flight fetch
+        instead of each issuing their own gwm.get_model RPC.
+        """
         if namespace in self._model_cache:
             return self._model_cache[namespace]
 
+        task = self._model_inflight.get(namespace)
+        if task is None:
+            task = asyncio.ensure_future(self._fetch_model(namespace))
+            self._model_inflight[namespace] = task
+        try:
+            return await task
+        finally:
+            self._model_inflight.pop(namespace, None)
+
+    async def _fetch_model(self, namespace: str) -> list[dict]:
+        """Issue the gwm.get_model RPC for one namespace and cache the result."""
         try:
             result = await self._rtm.rpc("1/gwm.get_model", {"name": namespace})
         except RenogyRTMError:

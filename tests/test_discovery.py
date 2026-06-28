@@ -1,5 +1,6 @@
 """Tests for the Renogy Gateway discovery module."""
 
+import asyncio
 import json
 from unittest.mock import AsyncMock, MagicMock
 
@@ -617,3 +618,29 @@ async def test_metadata_only_device_still_resolves() -> None:
     assert device.fields == []
     assert device.protocol == "wifi"
     assert device.sw_version == "V11.5.3"
+
+
+async def test_get_model_dedupes_concurrent_calls_for_same_namespace() -> None:
+    """Two devices resolving concurrently and sharing a namespace must issue
+    at most one gwm.get_model RPC for it, not one per caller."""
+    rtm = MagicMock()
+    call_count = 0
+
+    async def rpc(sp: str, data: dict) -> dict:
+        nonlocal call_count
+        call_count += 1
+        await asyncio.sleep(0)  # yield so both concurrent callers overlap
+        return {"sps": [{"name": "voltage", "type": 3, "ops": [2]}]}
+
+    rtm.rpc = AsyncMock(side_effect=rpc)
+    discovery = RenogyDiscovery(rtm)
+
+    results = await asyncio.gather(
+        discovery._get_model("shunt"), discovery._get_model("shunt")
+    )
+
+    assert call_count == 1
+    assert results[0] == results[1]
+    # A later call still hits the cache, not a fresh RPC.
+    assert await discovery._get_model("shunt") == results[0]
+    assert call_count == 1
