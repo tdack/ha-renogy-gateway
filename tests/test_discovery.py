@@ -593,6 +593,87 @@ async def test_get_firmware_none_on_read_failure() -> None:
     assert await discovery._get_firmware("123") is None
 
 
+async def test_rpc_with_retry_succeeds_after_transient_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A dropped RPC (RenogyRTMError, not just a timeout) is retried and can
+    still succeed — a single lost frame in the connect-time burst must not
+    permanently fail discovery for that namespace."""
+    monkeypatch.setattr(
+        "custom_components.renogy_gateway.api.discovery.asyncio.sleep", AsyncMock()
+    )
+    rtm = MagicMock()
+    rtm.rpc = AsyncMock(
+        side_effect=[RenogyRTMError("dropped"), {"sps": [], "inherit": None}]
+    )
+
+    discovery = RenogyDiscovery(rtm)
+    result = await discovery._get_model("shunt")
+
+    assert result == []
+    assert rtm.rpc.await_count == 2
+
+
+async def test_rpc_with_retry_raises_after_exhausting_attempts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A permanent failure still degrades gracefully (get_model caches []
+    after retries are exhausted, doesn't propagate)."""
+    monkeypatch.setattr(
+        "custom_components.renogy_gateway.api.discovery.asyncio.sleep", AsyncMock()
+    )
+    rtm = MagicMock()
+    rtm.rpc = AsyncMock(side_effect=RenogyRTMError("permanently dropped"))
+
+    discovery = RenogyDiscovery(rtm)
+    result = await discovery._get_model("shunt")
+
+    assert result == []
+    assert rtm.rpc.await_count == 3  # exhausted all retry attempts
+
+
+async def test_get_devices_prepends_gateway_deduped() -> None:
+    """The gwm.devs step-1 registration response carries the gateway's own
+    device entry — it must be prepended to the child device list so the ONE
+    Core surfaces as a device, without duplicating it if the child list also
+    happens to include it."""
+    gateway_entry = {"did_str": "111", "pid": "GW_PID", "text": "ONE Core"}
+    child_entry = {"did_str": "222", "pid": "CHILD_PID", "text": "Shunt"}
+
+    async def rpc(sp: str, data: dict) -> dict:
+        if "dids" in data:
+            return {"devs": [gateway_entry]}
+        return {"devs": [child_entry]}
+
+    rtm = MagicMock()
+    rtm.rpc = AsyncMock(side_effect=rpc)
+
+    discovery = RenogyDiscovery(rtm)
+    devices = await discovery._get_devices("111")
+
+    assert devices == [gateway_entry, child_entry]
+
+
+async def test_get_devices_does_not_duplicate_gateway_in_child_list() -> None:
+    """If the child list also happens to include the gateway, it must not
+    appear twice."""
+    gateway_entry = {"did_str": "111", "pid": "GW_PID", "text": "ONE Core"}
+    child_entry = {"did_str": "222", "pid": "CHILD_PID", "text": "Shunt"}
+
+    async def rpc(sp: str, data: dict) -> dict:
+        if "dids" in data:
+            return {"devs": [gateway_entry]}
+        return {"devs": [gateway_entry, child_entry]}
+
+    rtm = MagicMock()
+    rtm.rpc = AsyncMock(side_effect=rpc)
+
+    discovery = RenogyDiscovery(rtm)
+    devices = await discovery._get_devices("111")
+
+    assert devices == [gateway_entry, child_entry]
+
+
 async def test_metadata_only_device_still_resolves() -> None:
     """Real-world regression: "Vision" has only thing + version_ctrl
     namespaces, both always namespace-skipped, so it resolves to zero

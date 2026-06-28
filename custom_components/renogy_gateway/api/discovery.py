@@ -125,6 +125,27 @@ class RenogyDiscovery:
         # several devices commonly share a namespace).
         self._model_inflight: dict[str, asyncio.Task[list[dict]]] = {}
 
+    async def _rpc_with_retry(
+        self, sp: str, data: dict, *, attempts: int = 3, base_delay: float = 0.3
+    ) -> dict:
+        """Call an RPC with backoff retry, on top of RenogyRTM.rpc()'s own retry.
+
+        A frame lost in the concurrent connect-time burst can surface as an
+        outright RenogyRTMError (not just a timeout), which rpc() itself
+        doesn't retry. Mirrors renogy-gateway/packages/core/src/discovery.ts's
+        withRetry (3x backoff).
+        """
+        last: Exception | None = None
+        for attempt in range(attempts):
+            try:
+                return await self._rtm.rpc(sp, data)
+            except (RenogyRTMError, TimeoutError) as err:
+                last = err
+                if attempt < attempts - 1:
+                    await asyncio.sleep(base_delay * (attempt + 1))
+        assert last is not None
+        raise last
+
     async def discover(self, gateway_did_str: str) -> list[RenogyDevice]:
         """Return fully resolved devices behind the given gateway.
 
@@ -149,18 +170,38 @@ class RenogyDiscovery:
     # ------------------------------------------------------------------
 
     async def _get_devices(self, gateway_did_str: str) -> list[dict]:
-        """Run the two-step gwm.devs RPC to list child devices."""
+        """Run the two-step gwm.devs RPC to list child devices.
+
+        Step 1's registration response also carries the gateway's OWN device
+        entry (the ONE Core) — prepend it here so the gateway resolves as a
+        device alongside its children, deduped by did_str in case the child
+        list also happens to include it.
+        """
         gw_did = int(gateway_did_str)
+
         # Step 1: register gateway into RTM session
+        gateway_dev: dict | None = None
         try:
-            await self._rtm.rpc("1/gwm.devs", {"dids": [gw_did]})
+            reg_result = await self._rpc_with_retry("1/gwm.devs", {"dids": [gw_did]})
+            gateway_devs = reg_result.get("devs") if reg_result else []
+            if gateway_devs:
+                gateway_dev = gateway_devs[0]
         except RenogyRTMError:
             _LOGGER.debug("gwm.devs step-1 failed; proceeding anyway")
 
-        # Step 2: list devices
-        result = await self._rtm.rpc("1/gwm.devs", {"gatewayId": gw_did})
-        devs = result.get("devs") if result else []
-        return devs or []
+        # Step 2: list child devices
+        result = await self._rpc_with_retry("1/gwm.devs", {"gatewayId": gw_did})
+        child_devs: list[dict] = (result.get("devs") if result else None) or []
+
+        devices: list[dict] = []
+        seen_dids: set[str] = set()
+        for d in ([gateway_dev] if gateway_dev else []) + child_devs:
+            did_str = str(d.get("did_str") or d.get("did", ""))
+            if not did_str or did_str in seen_dids:
+                continue
+            seen_dids.add(did_str)
+            devices.append(d)
+        return devices
 
     # ------------------------------------------------------------------
     # Step 2 + 3: resolve one device
@@ -216,7 +257,7 @@ class RenogyDiscovery:
     async def _get_product(self, pid: str) -> tuple[list[str], str | None]:
         """Return (namespace list, connection protocol e.g. 'wifi') for a pid."""
         try:
-            result = await self._rtm.rpc("1/gwm.get_product", {"name": pid})
+            result = await self._rpc_with_retry("1/gwm.get_product", {"name": pid})
         except RenogyRTMError:
             _LOGGER.debug("get_product(%s) failed", pid)
             return [], None
@@ -330,7 +371,7 @@ class RenogyDiscovery:
     async def _fetch_model(self, namespace: str) -> list[dict]:
         """Issue the gwm.get_model RPC for one namespace and cache the result."""
         try:
-            result = await self._rtm.rpc("1/gwm.get_model", {"name": namespace})
+            result = await self._rpc_with_retry("1/gwm.get_model", {"name": namespace})
         except RenogyRTMError:
             _LOGGER.debug("get_model(%s) failed", namespace)
             self._model_cache[namespace] = []
