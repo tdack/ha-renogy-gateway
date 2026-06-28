@@ -5,6 +5,7 @@ from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
+from .api.labels import ZH_OPTION
 from .api.models import FieldSpec, RenogyDevice
 from .coordinator import RenogyConfigEntry, RenogyCoordinator
 from .entity import RenogyBaseEntity
@@ -47,9 +48,11 @@ class RenogySelect(RenogyBaseEntity, SelectEntity):
         """Initialize the select entity and build option label maps."""
         super().__init__(coordinator, device, field)
         assert field.options is not None
-        # options is [{key, value}]; expose 'value' (display label) to HA
+        # options is [{key, value}]; expose 'value' (display label) to HA,
+        # translating any Chinese schema-supplied labels to English.
         self._key_to_label: dict[str, str] = {
-            str(opt["key"]): str(opt["value"]) for opt in field.options
+            str(opt["key"]): ZH_OPTION.get(str(opt["value"]), str(opt["value"]))
+            for opt in field.options
         }
         self._label_to_key: dict[str, str] = {
             v: k for k, v in self._key_to_label.items()

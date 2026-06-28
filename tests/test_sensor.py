@@ -105,6 +105,28 @@ async def test_enum_sensor_native_value_maps_key_to_label(
     assert sensor.native_value == "Low Pressure"
 
 
+async def test_enum_sensor_translates_chinese_option_labels(
+    hass: HomeAssistant,
+    mock_coordinator,
+) -> None:
+    """Schema-supplied Chinese option labels (e.g. 关/开) must render in
+    English, matching renogy-gateway/packages/core/src/params.ts's ZH_OPTION."""
+    field = FieldSpec(
+        sp="123/gwmConfig.autoSync",
+        name="autoSync",
+        field_type=2,
+        ops=6,
+        options=[{"key": 0, "value": "关"}, {"key": 1, "value": "开"}],
+    )
+    sensor = RenogyEnumSensor(mock_coordinator, MOCK_TPMS_DEVICE, field)
+    sensor.hass = hass
+    sensor.async_write_ha_state = MagicMock()
+
+    assert sensor._attr_options == ["Off", "On"]
+    sensor._handle_telemetry(1)
+    assert sensor.native_value == "On"
+
+
 async def test_sensor_not_diagnostic_by_default(
     hass: HomeAssistant,
     mock_coordinator,

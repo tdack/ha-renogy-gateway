@@ -14,6 +14,7 @@ import logging
 from typing import Any
 
 from ..const import HIDE_LEAVES
+from .labels import CURATED_OPTIONS
 from .models import FieldSpec, RenogyDevice
 from .rtm import RenogyRTM, RenogyRTMError
 
@@ -336,6 +337,7 @@ class RenogyDiscovery:
             ops &= ~1  # strip the write bit — a reading, not a setting
 
         sp = f"{did_str}/{namespace}.{full_name}"
+        options = sp_dict.get("options") or CURATED_OPTIONS.get(f"{namespace}.{full_name}")
         return [
             FieldSpec(
                 sp=sp,
@@ -345,7 +347,7 @@ class RenogyDiscovery:
                 unit=sp_dict.get("unit") or None,
                 min_value=_to_float(sp_dict.get("min")),
                 max_value=_to_float(sp_dict.get("max")),
-                options=sp_dict.get("options") or None,
+                options=options,
                 precision=int(sp_dict.get("precision") or 0),
             )
         ]

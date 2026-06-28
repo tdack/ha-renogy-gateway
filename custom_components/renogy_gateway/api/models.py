@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass, field
 
+from .labels import LABELS
+
 
 @dataclass
 class TokenSet:
@@ -72,9 +74,27 @@ class FieldSpec:
         return parts[1] if len(parts) >= 3 else None
 
     @property
+    def namespace(self) -> str:
+        """Extract the namespace from the sp, e.g. 'charger' from '<did>/charger.max_current'."""
+        return self.sp.split("/", 1)[-1].split(".", 1)[0]
+
+    @property
     def display_name(self) -> str:
-        """Return the best available human name."""
-        return self.user_label or self.name
+        """Return the best available human name.
+
+        Priority: a user-assigned channel name (userdata_str.config) always
+        wins; otherwise fall back to a curated English label (ported from
+        renogy-gateway/packages/core/src/params.ts's LABELS, keyed by
+        "namespace.full_name" or bare leaf name); otherwise humanise the raw
+        schema field name.
+        """
+        if self.user_label:
+            return self.user_label
+        leaf = self.name.rsplit(".", 1)[-1]
+        label = LABELS.get(f"{self.namespace}.{self.name}") or LABELS.get(leaf)
+        if label:
+            return label
+        return _humanize(self.name)
 
 
 @dataclass
@@ -119,3 +139,12 @@ class RenogyDevice:
     def did(self) -> int:
         """Return the device DID as a Python int (lossless int64)."""
         return int(self.did_str)
+
+
+def _humanize(name: str) -> str:
+    """Turn a raw schema field name into a readable fallback label.
+
+    e.g. 'dc_10a_1.state' -> 'Dc 10a 1 State', 'max_current' -> 'Max Current'.
+    """
+    words = [w for token in name.split(".") for w in token.split("_") if w]
+    return " ".join(w.capitalize() for w in words)

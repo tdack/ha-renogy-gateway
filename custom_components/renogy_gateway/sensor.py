@@ -18,6 +18,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
+from .api.labels import ZH_OPTION
 from .api.models import FieldSpec, RenogyDevice
 from .const import DOMAIN, is_diagnostic_field
 from .coordinator import RenogyConfigEntry, RenogyCoordinator
@@ -154,7 +155,8 @@ class RenogyEnumSensor(RenogyBaseEntity, SensorEntity):
         super().__init__(coordinator, device, field)
         assert field.options is not None
         self._key_to_label: dict[str, str] = {
-            str(opt["key"]): str(opt["value"]) for opt in field.options
+            str(opt["key"]): ZH_OPTION.get(str(opt["value"]), str(opt["value"]))
+            for opt in field.options
         }
         self._attr_options = list(self._key_to_label.values())
         if is_diagnostic_field(field.sp):

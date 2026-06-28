@@ -154,6 +154,54 @@ async def test_get_fields_resolves_ref() -> None:
     assert {f.name for f in fields} == {"tp_state_1.pressure", "tp_state_1.online"}
 
 
+async def test_battery_type_gets_curated_options_when_schema_omits_them() -> None:
+    """charger.battery_type has no `options` in the schema, but the dashboard
+    curates Renogy's Modbus battery-type codes — port that curation so the
+    HA select shows Flooded/AGM/Gel/Lithium instead of raw integer codes."""
+    rtm = MagicMock()
+    rtm.rpc = AsyncMock(
+        return_value={
+            "sps": [{"name": "battery_type", "type": 2, "ops": [1, 2, 4]}],
+        }
+    )
+
+    discovery = RenogyDiscovery(rtm)
+    fields = await discovery._get_fields("123", "charger")
+
+    field = fields[0]
+    assert field.options == [
+        {"key": 0, "value": "User-defined"},
+        {"key": 1, "value": "Flooded"},
+        {"key": 2, "value": "Sealed / AGM"},
+        {"key": 3, "value": "Gel"},
+        {"key": 4, "value": "Lithium"},
+        {"key": 5, "value": "Custom"},
+    ]
+
+
+async def test_schema_supplied_options_are_not_overridden_by_curated_map() -> None:
+    """If the schema already supplies options, the curated fallback must not
+    override them."""
+    rtm = MagicMock()
+    rtm.rpc = AsyncMock(
+        return_value={
+            "sps": [
+                {
+                    "name": "battery_type",
+                    "type": 2,
+                    "ops": [1, 2, 4],
+                    "options": [{"key": 9, "value": "Custom Schema Option"}],
+                }
+            ],
+        }
+    )
+
+    discovery = RenogyDiscovery(rtm)
+    fields = await discovery._get_fields("123", "charger")
+
+    assert fields[0].options == [{"key": 9, "value": "Custom Schema Option"}]
+
+
 async def test_voltage_leaf_forced_readonly() -> None:
     """'voltage' is schema-writable but should surface as a sensor, not a number.
 
