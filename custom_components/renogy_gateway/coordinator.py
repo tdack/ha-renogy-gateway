@@ -76,6 +76,7 @@ class RenogyCoordinator:
         self._auth = RenogyAuth(self._session, _persist_tokens)
         self._rest = RenogyREST(self._session, self._auth)
         self._rtm = RenogyRTM(self._session, self._auth)
+        self._rtm.set_unexpected_disconnect_callback(self.schedule_reconnect)
         self._discovery = RenogyDiscovery(self._rtm)
 
         # Discovered devices keyed by did_str

@@ -1,5 +1,6 @@
 """Tests for the Renogy Gateway coordinator."""
 
+import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
@@ -144,3 +145,73 @@ async def test_drop_phantom_instances_ignores_writable_setting_defaults(
     coordinator._drop_phantom_instances()
 
     assert {f.sp for f in device.fields} == {bound_reading.sp}
+
+
+async def test_rtm_wired_to_schedule_reconnect(
+    hass: HomeAssistant,
+    mock_config_entry,
+) -> None:
+    """The coordinator must register itself as the RTM's unexpected-disconnect callback."""
+    mock_config_entry.add_to_hass(hass)
+    coordinator = RenogyCoordinator(hass, mock_config_entry)
+
+    assert coordinator._rtm._on_unexpected_disconnect == coordinator.schedule_reconnect
+
+
+async def test_unexpected_disconnect_schedules_reconnect_and_marks_unavailable(
+    hass: HomeAssistant,
+    mock_config_entry,
+) -> None:
+    """Firing the RTM's unexpected-disconnect callback schedules a reconnect and
+    immediately fans out availability=False."""
+    mock_config_entry.add_to_hass(hass)
+    coordinator = RenogyCoordinator(hass, mock_config_entry)
+    availability_calls: list[bool] = []
+    coordinator.register_availability_callback(availability_calls.append)
+    coordinator._rtm.disconnect = AsyncMock()
+    coordinator._connect_and_discover = AsyncMock(side_effect=asyncio.CancelledError)
+
+    coordinator._rtm._on_unexpected_disconnect()
+    await asyncio.sleep(0)  # let the scheduled background task run to its first await
+
+    assert coordinator._reconnect_task is not None
+    assert availability_calls == [False]
+
+
+async def test_reconnect_success_marks_available(
+    hass: HomeAssistant,
+    mock_config_entry,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A successful reconnect attempt fans out availability=True and clears the task."""
+    mock_config_entry.add_to_hass(hass)
+    coordinator = RenogyCoordinator(hass, mock_config_entry)
+    availability_calls: list[bool] = []
+    coordinator.register_availability_callback(availability_calls.append)
+    coordinator._rtm.disconnect = AsyncMock()
+    coordinator._connect_and_discover = AsyncMock()
+    monkeypatch.setattr(
+        "custom_components.renogy_gateway.coordinator.RTM_RECONNECT_DELAY_MIN", 0
+    )
+
+    coordinator.schedule_reconnect()
+    await coordinator._reconnect_task
+
+    assert availability_calls == [False, True]
+    assert coordinator._reconnect_task is None
+
+
+async def test_async_shutdown_does_not_schedule_reconnect(
+    hass: HomeAssistant,
+    mock_config_entry,
+) -> None:
+    """Calling async_shutdown() must not leave a reconnect scheduled afterwards."""
+    mock_config_entry.add_to_hass(hass)
+    coordinator = RenogyCoordinator(hass, mock_config_entry)
+    coordinator._rtm.disconnect = AsyncMock()
+
+    await coordinator.async_shutdown()
+    coordinator._rtm._on_unexpected_disconnect()  # would-be late callback, e.g. from a stale reader
+    await asyncio.sleep(0)
+
+    assert coordinator._reconnect_task is None

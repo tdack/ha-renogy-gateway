@@ -52,7 +52,13 @@ class RenogyRTM:
         self._subscriptions: dict[str, list[TelemetryCallback]] = {}
         self._reader_task: asyncio.Task | None = None
         self._connected = False
+        self._closing = False
         self._global_dispatcher: TelemetryCallback | None = None
+        self._on_unexpected_disconnect: Callable[[], None] | None = None
+
+    def set_unexpected_disconnect_callback(self, fn: Callable[[], None] | None) -> None:
+        """Set a callback fired when the reader exits without disconnect() having been called."""
+        self._on_unexpected_disconnect = fn
 
     # ------------------------------------------------------------------
     # Connection management
@@ -64,6 +70,7 @@ class RenogyRTM:
         Mirrors the app flow: fetch RTM token → upgrade WS → retry once on 403.
         Raises RenogyConnectionError on failure.
         """
+        self._closing = False
         rtm_token, rtm_did = await self._auth.refresh_rtm_token()
         self._ws = await self._open_ws(rtm_token)
 
@@ -139,6 +146,7 @@ class RenogyRTM:
 
     async def disconnect(self) -> None:
         """Close the WebSocket connection cleanly."""
+        self._closing = True
         self._connected = False
         if self._reader_task:
             self._reader_task.cancel()
@@ -171,7 +179,7 @@ class RenogyRTM:
         """Send a correlated frame and await its response."""
         opid = self._next_opid()
         frame["opid"] = opid
-        fut: asyncio.Future[dict] = asyncio.get_event_loop().create_future()
+        fut: asyncio.Future[dict] = asyncio.get_running_loop().create_future()
         self._pending[opid] = fut
         await self._send(frame)
         try:
@@ -208,6 +216,8 @@ class RenogyRTM:
                 if not fut.done():
                     fut.set_exception(RenogyRTMError("RTM reader closed"))
             self._pending.clear()
+            if not self._closing and self._on_unexpected_disconnect is not None:
+                asyncio.get_running_loop().call_soon(self._on_unexpected_disconnect)
 
     async def _dispatch(self, raw: str) -> None:
         """Process one received JSON frame."""
