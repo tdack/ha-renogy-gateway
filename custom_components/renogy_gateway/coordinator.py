@@ -43,6 +43,44 @@ _INSTANCE_PATTERNS = (
     re.compile(r"^tp_state_\d+$"),
 )
 
+def _validate_write_value(sp: str, field: FieldSpec, value: Any) -> None:
+    """Validate a value against the field's schema type and bounds before writing.
+
+    Mirrors renogy-gateway/packages/core/src/discovery.ts's validateWrite for
+    cross-repo consistency. Raises HomeAssistantError with a clear reason;
+    callers must check blacklist/writability separately.
+    """
+    from homeassistant.exceptions import HomeAssistantError  # noqa: PLC0415
+
+    is_number = isinstance(value, (int, float)) and not isinstance(value, bool)
+
+    if field.field_type == 1:  # bool
+        if not isinstance(value, bool):
+            raise HomeAssistantError(
+                f"{sp} expects boolean, got {type(value).__name__}"
+            )
+    elif field.field_type == 2:  # int
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise HomeAssistantError(
+                f"{sp} expects integer, got {type(value).__name__}"
+            )
+    elif field.field_type == 3:  # float
+        if not is_number:
+            raise HomeAssistantError(
+                f"{sp} expects number, got {type(value).__name__}"
+            )
+
+    if is_number:
+        if field.min_value is not None and value < field.min_value:
+            raise HomeAssistantError(
+                f"{sp}: value {value} below min {field.min_value}"
+            )
+        if field.max_value is not None and value > field.max_value:
+            raise HomeAssistantError(
+                f"{sp}: value {value} above max {field.max_value}"
+            )
+
+
 type RenogyConfigEntry = ConfigEntry[RenogyCoordinator]
 
 AvailabilityCallback = Callable[[bool], None]
@@ -326,7 +364,13 @@ class RenogyCoordinator:
     # ------------------------------------------------------------------
 
     async def async_write(self, sp: str, value: Any) -> None:
-        """Write a value to a controllable RTM field."""
+        """Write a value to a controllable RTM field.
+
+        Validates against the field's own schema (existence, writability,
+        type, bounds) before issuing the op-1 frame — HA's UI clamps
+        number/select inputs, but a service call or automation can bypass
+        that, and this is a control surface switching real circuits.
+        """
         from homeassistant.exceptions import HomeAssistantError  # noqa: PLC0415
 
         did_str, _, relative = sp.partition("/")
@@ -335,6 +379,13 @@ class RenogyCoordinator:
             raise HomeAssistantError(
                 f"{sp} is blocked from control by the device's control blacklist"
             )
+
+        field = next((f for f in device.fields if f.sp == sp), None) if device else None
+        if field is None:
+            raise HomeAssistantError(f"Unknown sp: {sp}")
+        if not field.writable:
+            raise HomeAssistantError(f"{sp} is not writable")
+        _validate_write_value(sp, field, value)
 
         try:
             ack = await self._rtm.write(sp, value)

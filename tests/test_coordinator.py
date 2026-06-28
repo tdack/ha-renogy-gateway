@@ -10,7 +10,7 @@ from custom_components.renogy_gateway.coordinator import RenogyCoordinator
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
-from .conftest import MOCK_BOX_DEVICE
+from .conftest import MOCK_BOX_DEVICE, MOCK_CHARGER_DEVICE, FIELD_CHARGE_VOLTAGE
 
 
 async def test_async_write_rejects_blacklisted_sp(
@@ -53,6 +53,98 @@ async def test_async_write_allows_non_blacklisted_sp(
         f"{MOCK_BOX_DEVICE.did_str}/distribution_box.relay_3.state", True
     )
     coordinator._rtm.write.assert_awaited_once()
+
+
+async def test_async_write_rejects_unknown_sp(
+    hass: HomeAssistant,
+    mock_config_entry,
+) -> None:
+    """Writing to an sp with no matching FieldSpec raises before any RTM frame."""
+    mock_config_entry.add_to_hass(hass)
+    coordinator = RenogyCoordinator(hass, mock_config_entry)
+    coordinator.devices = {MOCK_BOX_DEVICE.did_str: MOCK_BOX_DEVICE}
+    coordinator._rtm.write = AsyncMock()
+
+    with pytest.raises(HomeAssistantError, match="Unknown sp"):
+        await coordinator.async_write(f"{MOCK_BOX_DEVICE.did_str}/no.such.field", True)
+    coordinator._rtm.write.assert_not_awaited()
+
+
+async def test_async_write_rejects_non_writable_field(
+    hass: HomeAssistant,
+    mock_config_entry,
+) -> None:
+    """Writing to a field the schema marks read-only raises before any RTM frame."""
+    mock_config_entry.add_to_hass(hass)
+    coordinator = RenogyCoordinator(hass, mock_config_entry)
+    readonly_field = FieldSpec(
+        sp=f"{MOCK_BOX_DEVICE.did_str}/thing.online", name="online", field_type=1, ops=6
+    )
+    device = RenogyDevice(
+        did_str=MOCK_BOX_DEVICE.did_str,
+        pid=MOCK_BOX_DEVICE.pid,
+        sku=MOCK_BOX_DEVICE.sku,
+        name=MOCK_BOX_DEVICE.name,
+        online=True,
+        fields=[readonly_field],
+    )
+    coordinator.devices = {device.did_str: device}
+    coordinator._rtm.write = AsyncMock()
+
+    with pytest.raises(HomeAssistantError, match="not writable"):
+        await coordinator.async_write(readonly_field.sp, True)
+    coordinator._rtm.write.assert_not_awaited()
+
+
+async def test_async_write_rejects_wrong_type(
+    hass: HomeAssistant,
+    mock_config_entry,
+) -> None:
+    """Writing a string to a boolean field raises before any RTM frame."""
+    mock_config_entry.add_to_hass(hass)
+    coordinator = RenogyCoordinator(hass, mock_config_entry)
+    coordinator.devices = {MOCK_BOX_DEVICE.did_str: MOCK_BOX_DEVICE}
+    coordinator._rtm.write = AsyncMock()
+
+    with pytest.raises(HomeAssistantError, match="expects boolean"):
+        await coordinator.async_write(
+            f"{MOCK_BOX_DEVICE.did_str}/distribution_box.relay_3.state", "on"
+        )
+    coordinator._rtm.write.assert_not_awaited()
+
+
+async def test_async_write_rejects_out_of_range_value(
+    hass: HomeAssistant,
+    mock_config_entry,
+) -> None:
+    """Writing a value outside the schema's min/max raises before any RTM frame."""
+    mock_config_entry.add_to_hass(hass)
+    coordinator = RenogyCoordinator(hass, mock_config_entry)
+    coordinator.devices = {MOCK_CHARGER_DEVICE.did_str: MOCK_CHARGER_DEVICE}
+    coordinator._rtm.write = AsyncMock()
+
+    with pytest.raises(HomeAssistantError, match="below min"):
+        await coordinator.async_write(FIELD_CHARGE_VOLTAGE.sp, 1.0)
+    coordinator._rtm.write.assert_not_awaited()
+
+    with pytest.raises(HomeAssistantError, match="above max"):
+        await coordinator.async_write(FIELD_CHARGE_VOLTAGE.sp, 100.0)
+    coordinator._rtm.write.assert_not_awaited()
+
+
+async def test_async_write_allows_valid_value_within_bounds(
+    hass: HomeAssistant,
+    mock_config_entry,
+) -> None:
+    """A correctly-typed, in-range value still reaches the RTM unchanged."""
+    mock_config_entry.add_to_hass(hass)
+    coordinator = RenogyCoordinator(hass, mock_config_entry)
+    coordinator.devices = {MOCK_CHARGER_DEVICE.did_str: MOCK_CHARGER_DEVICE}
+    coordinator._rtm.write = AsyncMock(return_value={"code": 0})
+
+    await coordinator.async_write(FIELD_CHARGE_VOLTAGE.sp, 13.5)
+
+    coordinator._rtm.write.assert_awaited_once_with(FIELD_CHARGE_VOLTAGE.sp, 13.5)
 
 
 async def test_drop_phantom_instances_removes_dead_slots(
