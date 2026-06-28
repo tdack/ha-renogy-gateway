@@ -7,6 +7,7 @@ from homeassistant.core import HomeAssistant
 from .coordinator import RenogyConfigEntry, RenogyCoordinator
 
 _REDACT = {
+    "email",
     "password",
     "access_token",
     "refresh_token",
