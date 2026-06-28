@@ -147,6 +147,108 @@ async def test_drop_phantom_instances_ignores_writable_setting_defaults(
     assert {f.sp for f in device.fields} == {bound_reading.sp}
 
 
+async def test_merge_devices_keeps_prior_fields_on_empty_rediscovery(
+    hass: HomeAssistant,
+    mock_config_entry,
+) -> None:
+    """A device that rediscovers with zero fields (transient RPC drop) keeps
+    its prior schema instead of having its entities torn down; live metadata
+    (online, name) still refreshes from the fresh pass."""
+    mock_config_entry.add_to_hass(hass)
+    coordinator = RenogyCoordinator(hass, mock_config_entry)
+
+    prior_device = RenogyDevice(
+        did_str="123",
+        pid="shunt-pid",
+        sku="s",
+        name="Shunt 300A",
+        online=True,
+        fields=[FieldSpec(sp="123/shunt.main_battery_soc", name="main_battery_soc", field_type=3, ops=6)],
+    )
+    coordinator.devices = {"123": prior_device}
+
+    fresh_device = RenogyDevice(
+        did_str="123",
+        pid="shunt-pid",
+        sku="s",
+        name="Shunt 300A (renamed)",
+        online=False,
+        fields=[],
+    )
+
+    merged = coordinator._merge_devices([fresh_device])
+
+    assert merged["123"].fields == prior_device.fields
+    assert merged["123"].online is False
+    assert merged["123"].name == "Shunt 300A (renamed)"
+
+
+async def test_merge_devices_uses_fresh_fields_when_present(
+    hass: HomeAssistant,
+    mock_config_entry,
+) -> None:
+    """A device that successfully rediscovers its fields is not merged with
+    the prior snapshot — the fresh fields win."""
+    mock_config_entry.add_to_hass(hass)
+    coordinator = RenogyCoordinator(hass, mock_config_entry)
+
+    old_field = FieldSpec(sp="123/shunt.old", name="old", field_type=3, ops=6)
+    new_field = FieldSpec(sp="123/shunt.new", name="new", field_type=3, ops=6)
+    coordinator.devices = {
+        "123": RenogyDevice(
+            did_str="123", pid="p", sku="s", name="n", online=True, fields=[old_field]
+        )
+    }
+    fresh_device = RenogyDevice(
+        did_str="123", pid="p", sku="s", name="n", online=True, fields=[new_field]
+    )
+
+    merged = coordinator._merge_devices([fresh_device])
+
+    assert merged["123"].fields == [new_field]
+
+
+async def test_merge_devices_drops_genuinely_removed_device(
+    hass: HomeAssistant,
+    mock_config_entry,
+) -> None:
+    """A device absent from the fresh discovery entirely (actually removed)
+    must not be resurrected from the prior snapshot."""
+    mock_config_entry.add_to_hass(hass)
+    coordinator = RenogyCoordinator(hass, mock_config_entry)
+    coordinator.devices = {
+        "123": RenogyDevice(did_str="123", pid="p", sku="s", name="n", online=True, fields=[])
+    }
+
+    merged = coordinator._merge_devices([])
+
+    assert merged == {}
+
+
+async def test_merge_devices_does_not_merge_across_pid_change(
+    hass: HomeAssistant,
+    mock_config_entry,
+) -> None:
+    """If the same did_str now reports a different pid, treat it as a new
+    device rather than inheriting the old one's fields."""
+    mock_config_entry.add_to_hass(hass)
+    coordinator = RenogyCoordinator(hass, mock_config_entry)
+    old_field = FieldSpec(sp="123/shunt.old", name="old", field_type=3, ops=6)
+    coordinator.devices = {
+        "123": RenogyDevice(
+            did_str="123", pid="old-pid", sku="s", name="n", online=True, fields=[old_field]
+        )
+    }
+    fresh_device = RenogyDevice(
+        did_str="123", pid="new-pid", sku="s", name="n", online=True, fields=[]
+    )
+
+    merged = coordinator._merge_devices([fresh_device])
+
+    assert merged["123"].fields == []
+    assert merged["123"].pid == "new-pid"
+
+
 async def test_rtm_wired_to_schedule_reconnect(
     hass: HomeAssistant,
     mock_config_entry,

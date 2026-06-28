@@ -3,6 +3,7 @@
 import asyncio
 from collections.abc import Callable
 import contextlib
+from dataclasses import replace
 import logging
 import re
 from typing import Any
@@ -137,9 +138,7 @@ class RenogyCoordinator:
         await self._rtm.connect()
         self._rtm.set_telemetry_dispatcher(self._dispatch_telemetry)
 
-        self.devices = {
-            d.did_str: d for d in await self._discovery.discover(gateway_id)
-        }
+        self.devices = self._merge_devices(await self._discovery.discover(gateway_id))
         _LOGGER.debug(
             "Discovered %d devices behind gateway %s", len(self.devices), gateway_id
         )
@@ -196,6 +195,33 @@ class RenogyCoordinator:
             return
         self.scenes = {s.id: s for s in scenes}
         _LOGGER.debug("Discovered %d scenes", len(self.scenes))
+
+    def _merge_devices(self, fresh: list[RenogyDevice]) -> dict[str, RenogyDevice]:
+        """Non-destructively merge a fresh discovery pass against the current devices.
+
+        If a rediscovery (e.g. on reconnect) resolves a device to zero fields
+        — a transient RPC drop, even after discovery's own retries — keep its
+        prior schema instead of tearing down all its entities. Live metadata
+        (online, name) still comes from the fresh pass. A device genuinely
+        absent from the fresh list (actually removed) is still dropped.
+        Mirrors renogy-gateway/packages/core/src/discovery.ts's _runLive
+        non-destructive merge.
+        """
+        merged: dict[str, RenogyDevice] = {}
+        for device in fresh:
+            prior = self.devices.get(device.did_str)
+            if (
+                not device.fields
+                and prior is not None
+                and prior.pid == device.pid
+                and prior.fields
+            ):
+                merged[device.did_str] = replace(
+                    prior, online=device.online, name=device.name or prior.name
+                )
+            else:
+                merged[device.did_str] = device
+        return merged
 
     def _drop_phantom_instances(self) -> None:
         """Remove fields for multi-instance slots with no live seeded value.
