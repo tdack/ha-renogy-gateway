@@ -3,6 +3,26 @@
 All notable changes to this project are documented in this file, generated
 from the tagged release history.
 
+## [0.5.0] - 2026-06-28
+
+- Retry `gwm.get_product`/`gwm.get_model`/`gwm.devs` RPCs with backoff so a
+  single frame dropped in the connect-time burst no longer permanently
+  leaves a device with no schema.
+- Surface the gateway itself (the ONE Core) as a device, captured from the
+  `gwm.devs` step-1 registration response and deduped against the child
+  device list.
+- Non-destructively merge devices on rediscovery (e.g. after a reconnect):
+  if a device resolves to zero fields on a flaky pass, keep its prior
+  schema instead of tearing down all its entities; genuinely removed
+  devices are still dropped.
+- Validate writes against the field's schema (existence, writability,
+  type, min/max bounds) before issuing the control frame, instead of only
+  enforcing the control blacklist.
+- Port curated English labels, curated enum options (e.g. battery type),
+  and Chinese-to-English option-label translation from the canonical
+  `renogy-gateway` core, so entity names and dropdown options no longer
+  leak raw schema field names or untranslated Chinese labels.
+
 ## [0.4.0] - 2026-06-28
 
 - Wire the RTM reader's unexpected-disconnect signal to the coordinator's
