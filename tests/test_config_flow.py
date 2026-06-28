@@ -74,6 +74,7 @@ async def test_single_gateway_creates_entry(
     assert result["title"] == MOCK_GATEWAY_NAME
     assert result["data"]["email"] == MOCK_EMAIL
     assert result["data"]["gateway_id"] == MOCK_GATEWAY_ID
+    assert "password" not in result["data"]
 
 
 @pytest.mark.usefixtures("mock_setup_entry")
@@ -169,3 +170,26 @@ async def test_duplicate_entry_aborted(
     )
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "already_configured"
+
+
+async def test_reauth_does_not_persist_password(
+    hass: HomeAssistant,
+    mock_config_entry,
+    mock_auth_and_rest: tuple,
+) -> None:
+    """Reauth must update tokens without ever writing the password back to the entry."""
+    mock_config_entry.add_to_hass(hass)
+
+    result = await mock_config_entry.start_reauth_flow(hass)
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "reauth_confirm"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"email": MOCK_EMAIL, "password": MOCK_PASSWORD},
+    )
+    await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reauth_successful"
+    assert "password" not in mock_config_entry.data

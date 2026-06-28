@@ -1,6 +1,6 @@
 """The Renogy Gateway integration."""
 
-from homeassistant.const import Platform
+from homeassistant.const import CONF_PASSWORD, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 
@@ -50,3 +50,17 @@ async def async_unload_entry(hass: HomeAssistant, entry: RenogyConfigEntry) -> b
     if unload_ok and hasattr(entry, "runtime_data"):
         await entry.runtime_data.async_shutdown()
     return unload_ok
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: RenogyConfigEntry) -> bool:
+    """Migrate an old config entry to the current version.
+
+    Version 2 drops the persisted account password — it was written to
+    `.storage` but never read back (login only ever runs with freshly
+    user-entered credentials), so it was pure disk-exposure risk.
+    """
+    if entry.version == 1:
+        new_data = dict(entry.data)
+        new_data.pop(CONF_PASSWORD, None)
+        hass.config_entries.async_update_entry(entry, data=new_data, version=2)
+    return True

@@ -36,7 +36,7 @@ STEP_USER_SCHEMA = vol.Schema(
 class RenogyGatewayConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Renogy Gateway."""
 
-    VERSION = 1
+    VERSION = 2
 
     def __init__(self) -> None:
         """Initialize the config flow."""
@@ -116,19 +116,17 @@ class RenogyGatewayConfigFlow(ConfigFlow, domain=DOMAIN):
             else:
                 assert tokens is not None
                 entry = self._get_reauth_entry()
-                self.hass.config_entries.async_update_entry(
-                    entry,
-                    data={
-                        **entry.data,
-                        CONF_EMAIL: email,
-                        CONF_PASSWORD: password,
-                        CONF_ACCESS_TOKEN: tokens.access_token,
-                        CONF_REFRESH_TOKEN: tokens.refresh_token,
-                        CONF_RTM_TOKEN: tokens.rtm_token,
-                        CONF_RTM_DID: tokens.rtm_did,
-                        CONF_DEVICE_UUID: tokens.device_uuid,
-                    },
-                )
+                new_data = {
+                    **entry.data,
+                    CONF_EMAIL: email,
+                    CONF_ACCESS_TOKEN: tokens.access_token,
+                    CONF_REFRESH_TOKEN: tokens.refresh_token,
+                    CONF_RTM_TOKEN: tokens.rtm_token,
+                    CONF_RTM_DID: tokens.rtm_did,
+                    CONF_DEVICE_UUID: tokens.device_uuid,
+                }
+                new_data.pop(CONF_PASSWORD, None)
+                self.hass.config_entries.async_update_entry(entry, data=new_data)
                 return self.async_abort(reason="reauth_successful")
 
         return self.async_show_form(
@@ -191,7 +189,6 @@ class RenogyGatewayConfigFlow(ConfigFlow, domain=DOMAIN):
             title=gateway.name,
             data={
                 CONF_EMAIL: self._email,
-                CONF_PASSWORD: self._password,
                 CONF_GATEWAY_ID: gateway.did_str,
                 CONF_GATEWAY_NAME: gateway.name,
                 CONF_ACCESS_TOKEN: self._tokens.access_token,
