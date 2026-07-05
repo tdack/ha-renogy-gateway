@@ -3,6 +3,18 @@
 All notable changes to this project are documented in this file, generated
 from the tagged release history.
 
+## [0.5.1] - 2026-07-06
+
+- Fix the inverter's `battery_type` field (pid `000F003C`) surfacing as a
+  writable select whose curated 0-5 options can't represent its actual
+  value (14) — the schema's own description says battery type on
+  REGO-family inverters is fixed by the product, not user-settable.
+  Force it read-only for that pid specifically; genuine MPPT/DC-DC
+  chargers are unaffected.
+- Add a regression test confirming a multi-namespace device (e.g. the
+  inverter's `ac_input`/`ac_output`/`charger` fields) is grouped under a
+  single HA device, not split across several.
+
 ## [0.5.0] - 2026-06-28
 
 - Retry `gwm.get_product`/`gwm.get_model`/`gwm.devs` RPCs with backoff so a
