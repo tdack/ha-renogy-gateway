@@ -12,6 +12,7 @@ from custom_components.renogy_gateway.api.discovery import (
     _apply_labels,
     _parse_ops,
 )
+from custom_components.renogy_gateway.api.labels import CURATED_OPTIONS
 from custom_components.renogy_gateway.api.models import FieldSpec
 from custom_components.renogy_gateway.api.rtm import RenogyRTMError
 
@@ -200,6 +201,38 @@ async def test_schema_supplied_options_are_not_overridden_by_curated_map() -> No
     fields = await discovery._get_fields("123", "charger")
 
     assert fields[0].options == [{"key": 9, "value": "Custom Schema Option"}]
+
+
+async def test_battery_type_forced_readonly_on_inverter_pid() -> None:
+    """charger.battery_type on the RIV1230RCH-24S (pid 000F003C) reports a
+    live value (14) outside CURATED_OPTIONS' 0-5 range, and the schema's own
+    desc says it's fixed by the product — force it read-only rather than
+    rendering a select whose options can't match the device's value."""
+    rtm = MagicMock()
+    rtm.rpc = AsyncMock(
+        return_value={"sps": [{"name": "battery_type", "type": 2, "ops": [1, 2, 4]}]}
+    )
+
+    discovery = RenogyDiscovery(rtm)
+    fields = await discovery._get_fields("123", "charger", pid="000F003C")
+
+    assert fields[0].writable is False
+    # Still gets the curated label map — only writability is stripped.
+    assert fields[0].options == CURATED_OPTIONS["charger.battery_type"]
+
+
+async def test_battery_type_still_writable_on_genuine_charger_pid() -> None:
+    """The same field on an actual MPPT/DC-DC charger pid must stay writable
+    — the pid-scoped override must not leak to other products."""
+    rtm = MagicMock()
+    rtm.rpc = AsyncMock(
+        return_value={"sps": [{"name": "battery_type", "type": 2, "ops": [1, 2, 4]}]}
+    )
+
+    discovery = RenogyDiscovery(rtm)
+    fields = await discovery._get_fields("123", "charger", pid="000E002E")
+
+    assert fields[0].writable is True
 
 
 async def test_voltage_leaf_forced_readonly() -> None:
@@ -747,6 +780,35 @@ async def test_metadata_only_device_still_resolves() -> None:
     assert device.fields == []
     assert device.protocol == "wifi"
     assert device.sw_version == "V11.5.3"
+
+
+async def test_inverter_battery_type_resolves_readonly_end_to_end() -> None:
+    """Real-world regression: the RIV1230RCH-24S (pid 000F003C, did_str
+    4766577127497453285 in the 07-05 HAR) reports charger.battery_type=14 —
+    resolving the full device via _resolve_device must produce a read-only
+    field, not a writable one CURATED_OPTIONS can't represent."""
+    rtm = MagicMock()
+
+    async def rpc(sp: str, data: dict) -> dict:
+        if "get_product" in sp:
+            return {"models": ["charger"], "protocol": "wifi"}
+        return {"sps": [{"name": "battery_type", "type": 2, "ops": [1, 2, 4]}]}
+
+    rtm.rpc = AsyncMock(side_effect=rpc)
+
+    discovery = RenogyDiscovery(rtm)
+    device = await discovery._resolve_device(
+        {
+            "did_str": "4766577127497453285",
+            "pid": "000F003C",
+            "text": "Inverter/Charger",
+            "online": True,
+        }
+    )
+
+    assert device is not None
+    assert len(device.fields) == 1
+    assert device.fields[0].writable is False
 
 
 async def test_get_model_dedupes_concurrent_calls_for_same_namespace() -> None:

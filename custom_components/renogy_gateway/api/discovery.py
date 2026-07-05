@@ -24,10 +24,11 @@ _LOGGER = logging.getLogger(__name__)
 # Mirrors the dashboard/hass-bridge curation (packages/core/src/params.ts
 # PARAM_HIDE_NS + apps/dashboard/src/worker/bridge.ts SKIP_SUBSCRIBE_NS) in
 # the sibling renogy-gateway repo. Namespaces like gwmConfig, digital_input,
-# signal, alternator, and battery_temp_sensor carry real telemetry/settings
-# there and are intentionally NOT hidden here — only protocol/system
-# internals that neither app ever surfaces are skipped. `scene` is handled
-# by a dedicated platform instead of the generic field pipeline.
+# signal, alternator, and battery_temp_sensor/battery_volt_sensor carry real
+# telemetry/settings there and are intentionally NOT hidden here — only
+# protocol/system internals that neither app ever surfaces are skipped.
+# `scene` is handled by a dedicated platform instead of the generic field
+# pipeline.
 _SKIP_NAMESPACES = frozenset(
     {
         "thing",
@@ -96,14 +97,30 @@ _FORCE_READONLY_LEAVES_BY_NAMESPACE: dict[str, frozenset[str]] = {
     "tpms": frozenset({"pressure", "temperature", "battery_status", "online", "state"}),
 }
 
+# Same idea again, but scoped to a pid because the leaf is a genuine writable
+# setting on other products. The RIV1230RCH-24S (pid 000F003C) reports
+# charger.battery_type with the write bit set, but its own (Chinese) schema
+# desc says battery type on REGO-family inverters is fixed by the product
+# ("protocol setting not allowed") — confirmed live value 14 falls outside
+# CURATED_OPTIONS' 0-5 range, which was built for the genuine MPPT/DC-DC
+# chargers (RCC60REGO-G2, RBC50D1S-G6). See INVERTER_HAR_FIXES_PLAN.md
+# Priority 3; must match the equivalent pid-scoped fix in the sibling
+# renogy-gateway repo's packages/core/src/params.ts.
+_FORCE_READONLY_LEAVES_BY_PID: dict[str, frozenset[str]] = {
+    "000F003C": frozenset({"battery_type"}),
+}
 
-def _is_force_readonly(namespace: str, leaf: str) -> bool:
+
+def _is_force_readonly(namespace: str, leaf: str, pid: str = "") -> bool:
     """Return True if this (namespace, leaf) must be read-only regardless of
     what the schema's `ops` reports — see the constants above for evidence."""
     leaf_lower = leaf.lower()
     if leaf_lower in _FORCE_READONLY_LEAVES:
         return True
     if leaf_lower.endswith(_FORCE_READONLY_SUFFIXES):
+        return True
+    pid_leaves = _FORCE_READONLY_LEAVES_BY_PID.get(pid, frozenset())
+    if leaf_lower in {v.lower() for v in pid_leaves}:
         return True
     namespace_leaves = _FORCE_READONLY_LEAVES_BY_NAMESPACE.get(namespace, frozenset())
     return leaf_lower in {v.lower() for v in namespace_leaves}
@@ -228,7 +245,7 @@ class RenogyDiscovery:
         for ns in namespaces:
             if ns in _SKIP_NAMESPACES:
                 continue
-            ns_fields = await self._get_fields(did_str, ns)
+            ns_fields = await self._get_fields(did_str, ns, pid)
             fields.extend(ns_fields)
 
         # Fetch user-assigned channel labels if the device has userdata_str
@@ -270,12 +287,16 @@ class RenogyDiscovery:
     # Step 3: resolve field schema for a namespace
     # ------------------------------------------------------------------
 
-    async def _get_fields(self, did_str: str, namespace: str) -> list[FieldSpec]:
+    async def _get_fields(
+        self, did_str: str, namespace: str, pid: str = ""
+    ) -> list[FieldSpec]:
         """Resolve field specs for one namespace, with caching."""
         raw_sps = await self._get_model(namespace)
         fields: list[FieldSpec] = []
         for sp_dict in raw_sps:
-            specs = await self._expand_sp(did_str, namespace, sp_dict, frozenset())
+            specs = await self._expand_sp(
+                did_str, namespace, sp_dict, frozenset(), pid=pid
+            )
             fields.extend(specs)
         return fields
 
@@ -286,6 +307,7 @@ class RenogyDiscovery:
         sp_dict: dict,
         visiting: frozenset[str],
         prefix: str = "",
+        pid: str = "",
     ) -> list[FieldSpec]:
         """Recursively expand one raw sp dict into zero or more FieldSpecs.
 
@@ -311,7 +333,12 @@ class RenogyDiscovery:
             for child in ref_sps:
                 results.extend(
                     await self._expand_sp(
-                        did_str, namespace, child, nested_visiting, f"{full_name}."
+                        did_str,
+                        namespace,
+                        child,
+                        nested_visiting,
+                        f"{full_name}.",
+                        pid=pid,
                     )
                 )
             return results
@@ -321,7 +348,7 @@ class RenogyDiscovery:
             for child in sp_dict.get("fields") or []:
                 results.extend(
                     await self._expand_sp(
-                        did_str, namespace, child, visiting, f"{full_name}."
+                        did_str, namespace, child, visiting, f"{full_name}.", pid=pid
                     )
                 )
             return results
@@ -333,7 +360,7 @@ class RenogyDiscovery:
         leaf = full_name.rsplit(".", 1)[-1]
         if leaf in HIDE_LEAVES:
             return []  # protocol internal / maintenance command, not a setting
-        if _is_force_readonly(namespace, leaf):
+        if _is_force_readonly(namespace, leaf, pid):
             ops &= ~1  # strip the write bit — a reading, not a setting
 
         sp = f"{did_str}/{namespace}.{full_name}"
