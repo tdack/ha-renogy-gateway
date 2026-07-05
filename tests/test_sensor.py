@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock
 
 from custom_components.renogy_gateway.api.models import FieldSpec, RenogyDevice
+from custom_components.renogy_gateway.number import RenogyNumber
 from custom_components.renogy_gateway.sensor import (
     RenogyConnectionTypeSensor,
     RenogyEnumSensor,
@@ -16,6 +17,7 @@ from homeassistant.core import HomeAssistant
 
 from .conftest import (
     FIELD_AC_CURRENT_MA,
+    FIELD_DESIRED_VOLTAGE_MV,
     FIELD_SOC,
     FIELD_SOC_RULE,
     FIELD_TPMS_STATE,
@@ -169,6 +171,22 @@ async def test_milliamp_sensor_normalised_to_amps(
 
     sensor._handle_telemetry(1399.98999)
     assert round(sensor.native_value, 5) == 1.39999
+
+
+async def test_multi_namespace_device_does_not_split_across_ha_devices(
+    hass: HomeAssistant,
+    mock_coordinator,
+) -> None:
+    """The inverter exposes fields from several namespaces (ac_input,
+    charger, ...). Unlike the dashboard's nsToRole()-based grouping, entity
+    device_info here is keyed purely by did_str — confirm two entities from
+    different namespaces on the same device still share one HA device."""
+    ac_sensor = RenogySensor(mock_coordinator, MOCK_INVERTER_DEVICE, FIELD_AC_CURRENT_MA)
+    charger_number = RenogyNumber(
+        mock_coordinator, MOCK_INVERTER_DEVICE, FIELD_DESIRED_VOLTAGE_MV
+    )
+
+    assert ac_sensor.device_info["identifiers"] == charger_number.device_info["identifiers"]
 
 
 def test_connection_type_sensor_for_metadata_only_device() -> None:

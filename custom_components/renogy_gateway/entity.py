@@ -35,6 +35,11 @@ class RenogyBaseEntity(Entity):
 
         self._attr_unique_id = f"renogy_{field.sp}"
         self._attr_name = field.display_name
+        # Keyed purely by did_str — no namespace/role concept, so a
+        # multi-namespace device (e.g. the inverter's ac_input+ac_output+
+        # charger) can't split across HA devices the way a namespace-priority
+        # lookup could. Checked against the 2026-07-05 inverter HAR; see
+        # INVERTER_HAR_FIXES_PLAN.md Priority 4.
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, device.did_str)},
             name=device.name,
