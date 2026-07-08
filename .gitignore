@@ -11,3 +11,4 @@ venv/
 htmlcov/
 dist/
 build/
+docs/plans

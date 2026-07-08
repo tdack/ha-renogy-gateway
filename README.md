@@ -23,6 +23,8 @@ alarm thresholds, battery type, and similar) as configuration entities.
 
 ## Installation
 
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=Troy+Dack&repository=https%3A%2F%2Fgithub.com%2Ftdack%2Fha-renogy-gateway&category=Integration)
+
 This integration is not in the default HACS store, so add it as a custom
 repository:
 
