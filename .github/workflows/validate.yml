@@ -9,17 +9,22 @@ on:
     - cron: "0 0 * * 0"
   workflow_dispatch:
 
+# Read-only token: nothing here writes to the repo, and the HACS/hassfest
+# actions are third-party refs that run with it.
+permissions:
+  contents: read
+
 jobs:
   hassfest:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: home-assistant/actions/hassfest@master
 
   hacs:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: hacs/action@main
         with:
           category: integration
