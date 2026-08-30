@@ -59,16 +59,12 @@ def _is_controllable_bool(field: FieldSpec, device: RenogyDevice) -> bool:
 
 def _is_load_switch(field: FieldSpec, device: RenogyDevice) -> bool:
     """Return True if this field is a primary control for a real load channel."""
-    return _is_controllable_bool(field, device) and _has_measurement_sibling(
-        field, device
-    )
+    return _is_controllable_bool(field, device) and _has_measurement_sibling(field, device)
 
 
 def _is_config_switch(field: FieldSpec, device: RenogyDevice) -> bool:
     """Return True if this field is a standalone configuration toggle."""
-    return _is_controllable_bool(field, device) and not _has_measurement_sibling(
-        field, device
-    )
+    return _is_controllable_bool(field, device) and not _has_measurement_sibling(field, device)
 
 
 async def async_setup_entry(
@@ -79,9 +75,7 @@ async def async_setup_entry(
     """Set up Renogy switch entities from a config entry."""
     coordinator: RenogyCoordinator = entry.runtime_data
     entities: list[RenogySwitch | RenogyAutoSceneSwitch] = [
-        RenogySwitch(
-            coordinator, device, field, is_config=_is_config_switch(field, device)
-        )
+        RenogySwitch(coordinator, device, field, is_config=_is_config_switch(field, device))
         for device in coordinator.devices.values()
         for field in device.fields
         if _is_load_switch(field, device) or _is_config_switch(field, device)
@@ -113,10 +107,7 @@ class RenogySwitch(RenogyBaseEntity, RestoreEntity, SwitchEntity):
     async def async_added_to_hass(self) -> None:
         """Restore last state on startup, if the coordinator has no live value yet."""
         await super().async_added_to_hass()
-        if (
-            self._value is None
-            and (last_state := await self.async_get_last_state()) is not None
-        ):
+        if self._value is None and (last_state := await self.async_get_last_state()) is not None:
             self._value = last_state.state == "on"
 
     @property

@@ -1,12 +1,13 @@
 """Authentication for the Renogy DC Home private API."""
 
+import asyncio
 import base64
-from collections.abc import Callable, Coroutine
 import json
 import logging
 import time
-from typing import Any
 import uuid
+from collections.abc import Callable, Coroutine
+from typing import Any
 
 import aiohttp
 
@@ -26,9 +27,7 @@ CLIENT_HEADERS = {
     "Content-Type": "application/json",
     "Accept": "*/*",
     "Accept-Language": "en-US",
-    "User-Agent": (
-        "Renogy/1.8.82 (com.renogy.DCHome; build:2; iOS 26.5.0) Alamofire/5.11.2"
-    ),
+    "User-Agent": ("Renogy/1.8.82 (com.renogy.DCHome; build:2; iOS 26.5.0) Alamofire/5.11.2"),
 }
 
 # Cold-boot app-register constants (the iOS app's product + node type)
@@ -42,6 +41,24 @@ class RenogyAuthError(Exception):
 
 class RenogyConnectionError(Exception):
     """Raised when the Renogy API cannot be reached."""
+
+
+def _envelope_data(body: Any, what: str) -> dict:
+    """Return the `data` object from an API envelope, or raise.
+
+    The API answers HTTP 200 with a non-success envelope
+    (`{code, msg, data: null}`) for a rejected login, so `resp.status` alone is
+    not enough. Reading `body["data"]` blind raises an opaque KeyError/TypeError
+    instead of surfacing the server's own message — and, on the refresh path,
+    can persist a half-formed token pair.
+    """
+    data = body.get("data") if isinstance(body, dict) else None
+    if not isinstance(data, dict):
+        reason = ""
+        if isinstance(body, dict):
+            reason = body.get("msg") or body.get("code") or ""
+        raise RenogyAuthError(f"{what} failed: {reason or 'no data in response'}")
+    return data
 
 
 def _jwt_claims(token: str) -> dict:
@@ -71,6 +88,14 @@ class RenogyAuth:
         # Persistent local UUID — server requires identity-uuid on every call
         # including first login. Seeded from stored tokens when available.
         self._device_uuid = device_uuid or str(uuid.uuid4())
+        # Serialises token rotation. Refresh tokens ROTATE and the server kills
+        # the old one on first use, so two coroutines that each read
+        # `tokens.refresh_token` before either writes will both spend the same
+        # token: one wins, the other fails — and whichever response lands last
+        # writes its pair, which can leave a DEAD token persisted with no
+        # recovery path. HA runs entity handlers concurrently
+        # (PARALLEL_UPDATES = 0), so this is reachable.
+        self._refresh_lock = asyncio.Lock()
 
     def set_tokens(self, tokens: TokenSet) -> None:
         """Seed the auth layer with previously persisted tokens."""
@@ -119,9 +144,11 @@ class RenogyAuth:
         except aiohttp.ClientError as err:
             raise RenogyConnectionError(f"Cannot connect to Renogy: {err}") from err
 
-        data = body["data"]
-        access_token = data["accessToken"]
-        refresh_token = data["refreshToken"]
+        data = _envelope_data(body, "Login")
+        access_token = data.get("accessToken")
+        refresh_token = data.get("refreshToken")
+        if not access_token or not refresh_token:
+            raise RenogyAuthError("Login failed: no token pair in response")
         claims = _jwt_claims(access_token)
         device_uuid = claims.get("device_uuid", "")
 
@@ -158,16 +185,40 @@ class RenogyAuth:
                 body = await resp.json()
         except aiohttp.ClientError as err:
             raise RenogyConnectionError(f"Cannot register RTM session: {err}") from err
-        rtm_data = body["data"]
-        return rtm_data["token"], str(rtm_data["didStr"])
+        rtm_data = _envelope_data(body, "RTM registration")
+        token = rtm_data.get("token")
+        did = rtm_data.get("didStr") or rtm_data.get("did")
+        if not token or did is None:
+            raise RenogyAuthError("RTM registration failed: no token/did in response")
+        return token, str(did)
 
     async def ensure_fresh(self) -> None:
         """Refresh the access token if it is expired or about to expire."""
-        if not self._access_token_fresh():
+        if self._access_token_fresh():
+            return
+        async with self._refresh_lock:
+            # Re-check under the lock: a coroutine that queued behind a rotation
+            # already has a fresh token and must not spend the new one again.
+            if self._access_token_fresh():
+                return
+            await self._refresh_access()
+
+    async def force_refresh(self) -> None:
+        """Rotate unconditionally, ignoring the local `exp` claim.
+
+        For the 401/999 retry path: the server has rejected a token that may
+        still look fresh locally (server-side revocation, clock skew), which is
+        exactly the case `ensure_fresh` declines to act on. Without this the
+        retry re-sends the same dead token.
+        """
+        async with self._refresh_lock:
             await self._refresh_access()
 
     async def _refresh_access(self) -> None:
-        """Rotate the access + refresh token pair. Persists immediately."""
+        """Rotate the access + refresh token pair. Persists immediately.
+
+        Caller must hold `_refresh_lock`.
+        """
         tokens = self.tokens
         try:
             async with self._session.post(
@@ -183,7 +234,10 @@ class RenogyAuth:
         except aiohttp.ClientError as err:
             raise RenogyConnectionError(f"Token refresh failed: {err}") from err
 
-        data = body["data"]
+        data = _envelope_data(body, "Token refresh")
+        if not data.get("accessToken") or not data.get("refreshToken"):
+            # Never persist a half-formed pair — that would kill the chain.
+            raise RenogyAuthError("Token refresh failed: no token pair in response")
         # Old refresh token is now dead — persist the rotated pair immediately
         updated = TokenSet(
             access_token=data["accessToken"],
@@ -210,16 +264,21 @@ class RenogyAuth:
                 timeout=aiohttp.ClientTimeout(total=15),
             ) as resp:
                 resp.raise_for_status()
-                # Extract did_str from raw text before JSON parse to avoid float64 precision loss
-                raw = await resp.text()
-                body = json.loads(raw)
+                body = await resp.json()
         except aiohttp.ClientError as err:
             raise RenogyConnectionError(f"RTM token refresh failed: {err}") from err
 
-        rtm_data = body["data"]
-        rtm_token = rtm_data["token"]
-        # did is int64 — JSON float64 loses precision; use the raw string if provided
-        did_str = str(rtm_data.get("didStr") or rtm_data["did"])
+        rtm_data = _envelope_data(body, "RTM token refresh")
+        rtm_token = rtm_data.get("token")
+        # `did` is an int64. Unlike JavaScript — where JSON.parse rounds it
+        # through float64 and the sibling TypeScript client must regex it out of
+        # the raw response — Python's json decodes integers to arbitrary-
+        # precision `int`, so this is exact. Prefer `didStr` when present
+        # (app-register returns it; refresh-token returns only `did`).
+        did = rtm_data.get("didStr") or rtm_data.get("did")
+        if not rtm_token or did is None:
+            raise RenogyAuthError("RTM token refresh failed: no token/did in response")
+        did_str = str(did)
 
         updated = TokenSet(
             access_token=tokens.access_token,

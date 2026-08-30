@@ -112,8 +112,11 @@ _FORCE_READONLY_LEAVES_BY_PID: dict[str, frozenset[str]] = {
 
 
 def _is_force_readonly(namespace: str, leaf: str, pid: str = "") -> bool:
-    """Return True if this (namespace, leaf) must be read-only regardless of
-    what the schema's `ops` reports — see the constants above for evidence."""
+    """Return True if this (namespace, leaf) must be forced read-only.
+
+    Applies regardless of what the schema's `ops` reports — see the constants
+    above for the capture evidence behind each entry.
+    """
     leaf_lower = leaf.lower()
     if leaf_lower in _FORCE_READONLY_LEAVES:
         return True
@@ -124,6 +127,7 @@ def _is_force_readonly(namespace: str, leaf: str, pid: str = "") -> bool:
         return True
     namespace_leaves = _FORCE_READONLY_LEAVES_BY_NAMESPACE.get(namespace, frozenset())
     return leaf_lower in {v.lower() for v in namespace_leaves}
+
 
 # Maximum concurrent RPCs to avoid overwhelming the gateway
 _MAX_CONCURRENT = 4
@@ -287,16 +291,12 @@ class RenogyDiscovery:
     # Step 3: resolve field schema for a namespace
     # ------------------------------------------------------------------
 
-    async def _get_fields(
-        self, did_str: str, namespace: str, pid: str = ""
-    ) -> list[FieldSpec]:
+    async def _get_fields(self, did_str: str, namespace: str, pid: str = "") -> list[FieldSpec]:
         """Resolve field specs for one namespace, with caching."""
         raw_sps = await self._get_model(namespace)
         fields: list[FieldSpec] = []
         for sp_dict in raw_sps:
-            specs = await self._expand_sp(
-                did_str, namespace, sp_dict, frozenset(), pid=pid
-            )
+            specs = await self._expand_sp(did_str, namespace, sp_dict, frozenset(), pid=pid)
             fields.extend(specs)
         return fields
 
@@ -454,10 +454,7 @@ class RenogyDiscovery:
 
         # Double-encoded: data is a JSON string → parse once → get another string → parse again
         try:
-            if isinstance(raw_value, str):
-                inner = json.loads(raw_value)
-            else:
-                inner = raw_value
+            inner = json.loads(raw_value) if isinstance(raw_value, str) else raw_value
 
             if isinstance(inner, str):
                 inner = json.loads(inner)
@@ -474,10 +471,11 @@ class RenogyDiscovery:
                     continue  # unset — the schema's default/humanized name wins
                 channel_key = key.split(".", 1)[-1]  # strip "<namespace>." prefix
                 labels[channel_key] = name
-            return labels
         except (json.JSONDecodeError, TypeError):
             _LOGGER.debug("Failed to parse userdata_str.config for %s", did_str)
             return {}
+        else:
+            return labels
 
     # ------------------------------------------------------------------
     # Step 5: control blacklist
@@ -545,8 +543,10 @@ class RenogyDiscovery:
 
 
 def _parse_ops(ops_raw: Any) -> int:
-    """Convert raw `ops` (an int, or a list of recognized op codes) into our
-    internal {1: write, 2: read, 4: subscribe} bitmask.
+    """Convert raw `ops` into our internal bitmask.
+
+    Accepts an int or a list of recognized op codes; returns
+    {1: write, 2: read, 4: subscribe}.
 
     Real wire data (captures/*.har in the sibling renogy-gateway repo) always
     sends `ops` as a LIST of recognized codes drawn from {1,2,4,5,7} — never

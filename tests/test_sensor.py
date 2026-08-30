@@ -2,6 +2,10 @@
 
 from unittest.mock import MagicMock
 
+from homeassistant.components.sensor import SensorDeviceClass
+from homeassistant.const import EntityCategory
+from homeassistant.core import HomeAssistant
+
 from custom_components.renogy_gateway.api.models import FieldSpec, RenogyDevice
 from custom_components.renogy_gateway.number import RenogyNumber
 from custom_components.renogy_gateway.sensor import (
@@ -11,9 +15,6 @@ from custom_components.renogy_gateway.sensor import (
     _is_enum_sensor,
     _is_sensor,
 )
-from homeassistant.components.sensor import SensorDeviceClass
-from homeassistant.const import EntityCategory
-from homeassistant.core import HomeAssistant
 
 from .conftest import (
     FIELD_AC_CURRENT_MA,
@@ -182,9 +183,7 @@ async def test_multi_namespace_device_does_not_split_across_ha_devices(
     device_info here is keyed purely by did_str — confirm two entities from
     different namespaces on the same device still share one HA device."""
     ac_sensor = RenogySensor(mock_coordinator, MOCK_INVERTER_DEVICE, FIELD_AC_CURRENT_MA)
-    charger_number = RenogyNumber(
-        mock_coordinator, MOCK_INVERTER_DEVICE, FIELD_DESIRED_VOLTAGE_MV
-    )
+    charger_number = RenogyNumber(mock_coordinator, MOCK_INVERTER_DEVICE, FIELD_DESIRED_VOLTAGE_MV)
 
     assert ac_sensor.device_info["identifiers"] == charger_number.device_info["identifiers"]
 

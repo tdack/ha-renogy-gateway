@@ -23,9 +23,7 @@ async def async_get_config_entry_diagnostics(
     """Return diagnostics for a config entry."""
     coordinator: RenogyCoordinator = entry.runtime_data
 
-    redacted_data = {
-        k: "**REDACTED**" if k in _REDACT else v for k, v in entry.data.items()
-    }
+    redacted_data = {k: "**REDACTED**" if k in _REDACT else v for k, v in entry.data.items()}
 
     devices_info = [
         {

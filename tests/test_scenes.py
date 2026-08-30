@@ -15,7 +15,6 @@ from custom_components.renogy_gateway.switch import RenogyAutoSceneSwitch
 
 from .conftest import MOCK_AUTO_SCENE, MOCK_GATEWAY_NAME, MOCK_MANUAL_SCENE
 
-
 # ---------------------------------------------------------------------------
 # REST: get_scenes / update_scene
 # ---------------------------------------------------------------------------
@@ -24,7 +23,7 @@ from .conftest import MOCK_AUTO_SCENE, MOCK_GATEWAY_NAME, MOCK_MANUAL_SCENE
 async def test_get_scenes_fetches_manual_and_auto() -> None:
     """get_scenes fetches type=2 (manual) and type=3 (auto) and tags each."""
     rest = RenogyREST.__new__(RenogyREST)
-    rest._get_scenes_by_type = AsyncMock(  # noqa: SLF001
+    rest._get_scenes_by_type = AsyncMock(
         side_effect=[
             [{"id": 1, "sceneName": "Away", "conditionType": 1}],
             [{"id": 2, "sceneName": "Cooling On", "conditionType": 4, "isOpen": True}],
@@ -36,14 +35,19 @@ async def test_get_scenes_fetches_manual_and_auto() -> None:
     assert {s.id: s.is_manual for s in scenes} == {"1": True, "2": False}
     auto = next(s for s in scenes if s.id == "2")
     assert auto.is_open is True
-    assert auto.raw == {"id": 2, "sceneName": "Cooling On", "conditionType": 4, "isOpen": True}
+    assert auto.raw == {
+        "id": 2,
+        "sceneName": "Cooling On",
+        "conditionType": 4,
+        "isOpen": True,
+    }
 
 
 async def test_update_scene_echoes_raw_body_with_flipped_open() -> None:
     """update_scene echoes the stored raw scene back with isOpen/isManual set,
     matching the dashboard's bridge.ts updateScene call (full-object write)."""
     rest = RenogyREST.__new__(RenogyREST)
-    rest._post = AsyncMock(return_value={"code": "000000"})  # noqa: SLF001
+    rest._post = AsyncMock(return_value={"code": "000000"})
 
     await rest.update_scene(MOCK_AUTO_SCENE, is_open=False)
 
@@ -63,7 +67,7 @@ async def test_update_scene_echoes_raw_body_with_flipped_open() -> None:
 async def test_rtm_run_scene_sends_op6_rpc() -> None:
     """run_scene issues op-6 to '<gwDid>/scene.run' with the sceneId payload."""
     rtm = RenogyRTM.__new__(RenogyRTM)
-    rtm._call = AsyncMock(return_value={"code": 0})  # noqa: SLF001
+    rtm._call = AsyncMock(return_value={"code": 0})
 
     ack = await rtm.run_scene("227162568538456065", 2400162031240761)
 
@@ -79,9 +83,7 @@ async def test_rtm_run_scene_sends_op6_rpc() -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_async_run_scene_unknown_id_raises(
-    hass: HomeAssistant, mock_config_entry
-) -> None:
+async def test_async_run_scene_unknown_id_raises(hass: HomeAssistant, mock_config_entry) -> None:
     """Running an unknown scene id raises instead of calling the RTM."""
     mock_config_entry.add_to_hass(hass)
     coordinator = RenogyCoordinator(hass, mock_config_entry)
@@ -92,9 +94,7 @@ async def test_async_run_scene_unknown_id_raises(
     coordinator._rtm.run_scene.assert_not_awaited()
 
 
-async def test_async_run_scene_calls_rtm(
-    hass: HomeAssistant, mock_config_entry
-) -> None:
+async def test_async_run_scene_calls_rtm(hass: HomeAssistant, mock_config_entry) -> None:
     """Running a known scene calls RTM.run_scene with the gateway did + int id."""
     mock_config_entry.add_to_hass(hass)
     coordinator = RenogyCoordinator(hass, mock_config_entry)
@@ -151,9 +151,7 @@ async def test_auto_scene_switch_turn_off_calls_coordinator(mock_coordinator) ->
     """Turning the switch off calls coordinator.async_set_scene_open(False)."""
     switch = RenogyAutoSceneSwitch(mock_coordinator, MOCK_GATEWAY_NAME, MOCK_AUTO_SCENE)
     await switch.async_turn_off()
-    mock_coordinator.async_set_scene_open.assert_awaited_once_with(
-        MOCK_AUTO_SCENE.id, False
-    )
+    mock_coordinator.async_set_scene_open.assert_awaited_once_with(MOCK_AUTO_SCENE.id, False)
 
 
 async def test_scene_entity_unavailable_when_scene_disappears(mock_coordinator) -> None:

@@ -60,7 +60,11 @@ def _display_precision(field: FieldSpec) -> int | None:
     """Decimal places to show, capped at 2 (e.g. 14.349999 -> 14.35)."""
     if field.field_type != 3:  # only floats need rounding
         return None
-    return min(field.precision, _DEFAULT_FLOAT_PRECISION) if field.precision else _DEFAULT_FLOAT_PRECISION
+    return (
+        min(field.precision, _DEFAULT_FLOAT_PRECISION)
+        if field.precision
+        else _DEFAULT_FLOAT_PRECISION
+    )
 
 
 def _is_sensor(field: FieldSpec) -> bool:

@@ -34,7 +34,11 @@ class RenogyREST:
                 timeout=aiohttp.ClientTimeout(total=15),
             ) as resp:
                 if resp.status in (401, 999):
-                    await self._auth.ensure_fresh()
+                    # force, not ensure: the server has rejected this token, but
+                    # its `exp` claim may still look fresh locally — in which
+                    # case ensure_fresh() is a no-op and the retry below would
+                    # re-send the very token that just failed.
+                    await self._auth.force_refresh()
                     headers = self._auth._headers()  # noqa: SLF001
                     async with self._session.get(
                         f"{BASE_URL}{path}",
@@ -59,7 +63,11 @@ class RenogyREST:
                 timeout=aiohttp.ClientTimeout(total=15),
             ) as resp:
                 if resp.status in (401, 999):
-                    await self._auth.ensure_fresh()
+                    # force, not ensure: the server has rejected this token, but
+                    # its `exp` claim may still look fresh locally — in which
+                    # case ensure_fresh() is a no-op and the retry below would
+                    # re-send the very token that just failed.
+                    await self._auth.force_refresh()
                     headers = self._auth._headers()  # noqa: SLF001
                     async with self._session.post(
                         f"{BASE_URL}{path}",

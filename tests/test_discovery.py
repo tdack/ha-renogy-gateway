@@ -79,9 +79,7 @@ async def test_user_label_double_parse() -> None:
 
 async def test_user_label_already_single_parsed() -> None:
     """If data is already a dict (single parse), handle gracefully."""
-    inner_dict = {
-        "distribution_box.dc_10a_1": {"name": "Bedroom Light", "channelEnable": True}
-    }
+    inner_dict = {"distribution_box.dc_10a_1": {"name": "Bedroom Light", "channelEnable": True}}
 
     rtm = MagicMock()
     rtm.read = AsyncMock(return_value=inner_dict)
@@ -329,7 +327,14 @@ async def test_tank_ratio_and_connected_are_sensors_with_real_schema() -> None:
     rtm.rpc = AsyncMock(
         return_value={
             "sps": [
-                {"name": "ratio", "type": 2, "ops": [2, 4, 5, 7], "unit": "%", "min": 0, "max": 100},
+                {
+                    "name": "ratio",
+                    "type": 2,
+                    "ops": [2, 4, 5, 7],
+                    "unit": "%",
+                    "min": 0,
+                    "max": 100,
+                },
                 {
                     "name": "mode",
                     "type": 2,
@@ -408,9 +413,7 @@ async def test_distribution_box_state_leaf_unaffected_by_tpms_override() -> None
     """
     rtm = MagicMock()
     rtm.rpc = AsyncMock(
-        return_value={
-            "sps": [{"name": "dc_10a_1.state", "type": 1, "ops": [1, 2, 4, 5, 7]}]
-        }
+        return_value={"sps": [{"name": "dc_10a_1.state", "type": 1, "ops": [1, 2, 4, 5, 7]}]}
     )
 
     discovery = RenogyDiscovery(rtm)
@@ -529,7 +532,12 @@ async def test_distribution_box_channel_counts_excluded() -> None:
                 {"name": "dc_10a_count", "type": 2, "ops": [2]},
                 {"name": "dc_20a_count", "type": 2, "ops": [2]},
                 {"name": "ai_count", "type": 2, "ops": [2]},
-                {"name": "dc_input_voltage", "type": 3, "ops": [2, 4, 5, 7], "unit": "V"},
+                {
+                    "name": "dc_input_voltage",
+                    "type": 3,
+                    "ops": [2, 4, 5, 7],
+                    "unit": "V",
+                },
             ]
         }
     )
@@ -580,7 +588,10 @@ async def test_gwm_config_fields_resolved_via_get_fields() -> None:
                     "name": "socRule",
                     "type": 2,
                     "ops": 7,
-                    "options": [{"key": 0, "value": "Low"}, {"key": 1, "value": "Medium"}],
+                    "options": [
+                        {"key": 0, "value": "Low"},
+                        {"key": 1, "value": "Medium"},
+                    ],
                 },
             ]
         }
@@ -680,13 +691,9 @@ async def test_rpc_with_retry_succeeds_after_transient_failure(
     """A dropped RPC (RenogyRTMError, not just a timeout) is retried and can
     still succeed — a single lost frame in the connect-time burst must not
     permanently fail discovery for that namespace."""
-    monkeypatch.setattr(
-        "custom_components.renogy_gateway.api.discovery.asyncio.sleep", AsyncMock()
-    )
+    monkeypatch.setattr("custom_components.renogy_gateway.api.discovery.asyncio.sleep", AsyncMock())
     rtm = MagicMock()
-    rtm.rpc = AsyncMock(
-        side_effect=[RenogyRTMError("dropped"), {"sps": [], "inherit": None}]
-    )
+    rtm.rpc = AsyncMock(side_effect=[RenogyRTMError("dropped"), {"sps": [], "inherit": None}])
 
     discovery = RenogyDiscovery(rtm)
     result = await discovery._get_model("shunt")
@@ -700,9 +707,7 @@ async def test_rpc_with_retry_raises_after_exhausting_attempts(
 ) -> None:
     """A permanent failure still degrades gracefully (get_model caches []
     after retries are exhausted, doesn't propagate)."""
-    monkeypatch.setattr(
-        "custom_components.renogy_gateway.api.discovery.asyncio.sleep", AsyncMock()
-    )
+    monkeypatch.setattr("custom_components.renogy_gateway.api.discovery.asyncio.sleep", AsyncMock())
     rtm = MagicMock()
     rtm.rpc = AsyncMock(side_effect=RenogyRTMError("permanently dropped"))
 
@@ -773,7 +778,12 @@ async def test_metadata_only_device_still_resolves() -> None:
 
     discovery = RenogyDiscovery(rtm)
     device = await discovery._resolve_device(
-        {"did_str": "4646428229905819205", "pid": "002C0000", "text": "Vision", "online": True}
+        {
+            "did_str": "4646428229905819205",
+            "pid": "002C0000",
+            "text": "Vision",
+            "online": True,
+        }
     )
 
     assert device is not None
@@ -826,9 +836,7 @@ async def test_get_model_dedupes_concurrent_calls_for_same_namespace() -> None:
     rtm.rpc = AsyncMock(side_effect=rpc)
     discovery = RenogyDiscovery(rtm)
 
-    results = await asyncio.gather(
-        discovery._get_model("shunt"), discovery._get_model("shunt")
-    )
+    results = await asyncio.gather(discovery._get_model("shunt"), discovery._get_model("shunt"))
 
     assert call_count == 1
     assert results[0] == results[1]

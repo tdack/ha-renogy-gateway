@@ -2,14 +2,15 @@
 
 from unittest.mock import MagicMock
 
+from homeassistant.const import EntityCategory
+from homeassistant.core import HomeAssistant
+
 from custom_components.renogy_gateway.api.models import FieldSpec, RenogyDevice
 from custom_components.renogy_gateway.switch import (
     RenogySwitch,
     _is_config_switch,
     _is_load_switch,
 )
-from homeassistant.const import EntityCategory
-from homeassistant.core import HomeAssistant
 
 from .conftest import FIELD_RELAY, MOCK_BOX_DEVICE
 
@@ -113,9 +114,7 @@ async def test_config_switch_entity_has_config_category(
     mock_coordinator,
 ) -> None:
     """A switch built with is_config=True is tagged EntityCategory.CONFIG."""
-    switch = RenogySwitch(
-        mock_coordinator, MOCK_BOX_DEVICE, FIELD_RELAY, is_config=True
-    )
+    switch = RenogySwitch(mock_coordinator, MOCK_BOX_DEVICE, FIELD_RELAY, is_config=True)
     assert switch.entity_category == EntityCategory.CONFIG
 
 

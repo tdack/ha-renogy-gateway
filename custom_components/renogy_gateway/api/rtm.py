@@ -1,19 +1,22 @@
 """Renogy RTM — real-time device telemetry and control over WebSocket.
 
 Custom MQTT-style pub/sub protocol. Frames are JSON keyed by `op`:
-  op 9 / 8   connect / connect-ack
+  op 9        connect
+  op 8        GENERIC ACK — `sop` names the acked op (9 connect, 4 subscribe,
+              1 write), `wopid` echoes the request opid, `code` is the result
+              (0 done, 14 queued). See PROTOCOL.md §4.
   op 2 → 3   read a value (response carries wopid matching opid)
-  op 4        subscribe (telemetry then streams as op 7)
+  op 4        subscribe (acked by op-8 sop-4; telemetry then streams as op 7)
   op 7        telemetry push {sp, data}
   op 6        RPC method call
   op 1        WRITE / SET — the control path
 """
 
 import asyncio
-from collections.abc import Callable
 import contextlib
 import json
 import logging
+from collections.abc import Callable
 from typing import Any
 
 import aiohttp
@@ -86,32 +89,63 @@ class RenogyRTM:
             }
         )
 
-        # Wait for connect-ack (op-8) with timeout
-        try:
-            ack_raw = await asyncio.wait_for(
-                self._ws.receive(), timeout=_CONNECT_TIMEOUT
-            )
-        except TimeoutError as err:
-            raise RenogyConnectionError("RTM connect-ack timed out") from err
-
-        if ack_raw.type in (
-            aiohttp.WSMsgType.CLOSE,
-            aiohttp.WSMsgType.CLOSED,
-            aiohttp.WSMsgType.ERROR,
-        ):
-            raise RenogyConnectionError(
-                f"RTM WebSocket closed before connect-ack: {ack_raw}"
-            )
-
-        ack = json.loads(ack_raw.data)
-        if ack.get("op") != 8 or ack.get("code") != 0:
-            raise RenogyConnectionError(
-                f"RTM connect-ack failed (code {ack.get('code')})"
-            )
+        ack = await self._await_connect_ack()
+        if ack.get("code") != 0:
+            raise RenogyConnectionError(f"RTM connect-ack failed (code {ack.get('code')})")
 
         self._connected = True
         self._reader_task = asyncio.ensure_future(self._reader())
         _LOGGER.debug("RTM connected (did=%s)", rtm_did)
+
+    async def _await_connect_ack(self) -> dict:
+        """Read frames until the connect-ack arrives, or time out.
+
+        The reader task has not started yet, so this consumes frames directly.
+        Two things can arrive before the ack and must not abort the connect:
+
+        * bare `ping` text frames — the gateway sends them unprompted, and
+          `json.loads("ping")` raises JSONDecodeError, which is not an
+          aiohttp.ClientError and so escaped connect() as an unexpected
+          exception rather than RenogyConnectionError;
+        * any other stray frame.
+
+        The connect-ack is `op:8` with `sop:9` — op-8 is the GENERIC ack (see
+        PROTOCOL.md §4), so matching on op alone is not sufficient in general.
+        Older gateways may omit `sop`; the ack is also the only op-8 frame with
+        no `wopid`, so either signal identifies it.
+        """
+        assert self._ws is not None
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + _CONNECT_TIMEOUT
+
+        while True:
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                raise RenogyConnectionError("RTM connect-ack timed out")
+            try:
+                msg = await asyncio.wait_for(self._ws.receive(), timeout=remaining)
+            except TimeoutError as err:
+                raise RenogyConnectionError("RTM connect-ack timed out") from err
+
+            if msg.type in (
+                aiohttp.WSMsgType.CLOSE,
+                aiohttp.WSMsgType.CLOSED,
+                aiohttp.WSMsgType.ERROR,
+            ):
+                raise RenogyConnectionError(f"RTM WebSocket closed before connect-ack: {msg}")
+            if msg.type is not aiohttp.WSMsgType.TEXT:
+                continue
+            if msg.data == "ping":
+                await self._ws.send_str("pong")
+                continue
+            try:
+                frame = json.loads(msg.data)
+            except json.JSONDecodeError:
+                _LOGGER.debug("RTM: skipping non-JSON frame before connect-ack")
+                continue
+            if frame.get("op") == 8 and (frame.get("sop") == 9 or frame.get("wopid") is None):
+                return frame
+            _LOGGER.debug("RTM: skipping frame before connect-ack: op=%s", frame.get("op"))
 
     async def _open_ws(self, rtm_token: str) -> aiohttp.ClientWebSocketResponse:
         """Open the WebSocket upgrade, retrying once on 403."""
@@ -137,9 +171,7 @@ class RenogyRTM:
                     timeout=aiohttp.ClientWSTimeout(ws_close=_CONNECT_TIMEOUT),
                 )
             except aiohttp.ClientError as retry_err:
-                raise RenogyConnectionError(
-                    f"RTM WS retry failed: {retry_err}"
-                ) from retry_err
+                raise RenogyConnectionError(f"RTM WS retry failed: {retry_err}") from retry_err
         except aiohttp.ClientError as err:
             raise RenogyConnectionError(f"RTM WS connection failed: {err}") from err
         return ws
@@ -276,15 +308,11 @@ class RenogyRTM:
         last_err: Exception | None = None
         for attempt in range(retries):
             try:
-                resp = await self._call(
-                    {"op": 6, "sp": sp, "data": data, "ack": True, "qos": 1}
-                )
+                resp = await self._call({"op": 6, "sp": sp, "data": data, "ack": True, "qos": 1})
                 return resp.get("data")
             except TimeoutError as err:
                 last_err = err
-                _LOGGER.debug(
-                    "RPC %s timeout (attempt %d/%d)", sp, attempt + 1, retries
-                )
+                _LOGGER.debug("RPC %s timeout (attempt %d/%d)", sp, attempt + 1, retries)
                 await asyncio.sleep(0.3 * (attempt + 1))
         raise RenogyRTMError(f"RPC {sp} failed after {retries} attempts") from last_err
 
@@ -294,9 +322,7 @@ class RenogyRTM:
         Returns the ACK frame. code=0 is explicit success; code=14 means the
         command was queued — wait for an op-7 push rather than reading back.
         """
-        return await self._call(
-            {"op": 1, "sp": sp, "data": value, "ack": True, "qos": 1}
-        )
+        return await self._call({"op": 1, "sp": sp, "data": value, "ack": True, "qos": 1})
 
     async def run_scene(self, gateway_did: str, scene_id: int) -> dict:
         """Execute a Manual scene (op-6 RPC `<gwDid>/scene.run {sceneId}`).

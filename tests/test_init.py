@@ -4,12 +4,11 @@ from unittest.mock import AsyncMock, patch
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.renogy_gateway import async_migrate_entry, async_setup_entry
 from custom_components.renogy_gateway.api.models import RenogyDevice
 from custom_components.renogy_gateway.const import DOMAIN
-
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from .conftest import CONFIG_ENTRY_DATA, MOCK_EMAIL, MOCK_GATEWAY_ID
 
@@ -44,9 +43,7 @@ async def test_device_with_no_fields_still_gets_registered(
             "custom_components.renogy_gateway.RenogyCoordinator",
             return_value=mock_coordinator,
         ),
-        patch.object(
-            hass.config_entries, "async_forward_entry_setups", AsyncMock()
-        ),
+        patch.object(hass.config_entries, "async_forward_entry_setups", AsyncMock()),
     ):
         result = await async_setup_entry(hass, mock_config_entry)
 

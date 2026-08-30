@@ -54,9 +54,7 @@ class RenogySelect(RenogyBaseEntity, SelectEntity):
             str(opt["key"]): ZH_OPTION.get(str(opt["value"]), str(opt["value"]))
             for opt in field.options
         }
-        self._label_to_key: dict[str, str] = {
-            v: k for k, v in self._key_to_label.items()
-        }
+        self._label_to_key: dict[str, str] = {v: k for k, v in self._key_to_label.items()}
         self._attr_options = list(self._key_to_label.values())
 
     @property

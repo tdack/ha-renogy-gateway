@@ -4,8 +4,9 @@ import math
 from unittest.mock import MagicMock
 
 from homeassistant.components.light import ATTR_BRIGHTNESS
-from custom_components.renogy_gateway.light import RenogyLight
 from homeassistant.core import HomeAssistant
+
+from custom_components.renogy_gateway.light import RenogyLight
 
 from .conftest import FIELD_LIGHT_RATIO, FIELD_LIGHT_STATE, MOCK_BOX_DEVICE
 
@@ -15,9 +16,7 @@ async def test_light_turn_on_no_brightness(
     mock_coordinator,
 ) -> None:
     """Turn on without brightness just writes state=True."""
-    light = RenogyLight(
-        mock_coordinator, MOCK_BOX_DEVICE, FIELD_LIGHT_STATE, FIELD_LIGHT_RATIO
-    )
+    light = RenogyLight(mock_coordinator, MOCK_BOX_DEVICE, FIELD_LIGHT_STATE, FIELD_LIGHT_RATIO)
     light.hass = hass
 
     await light.async_turn_on()
@@ -29,9 +28,7 @@ async def test_light_turn_on_with_brightness(
     mock_coordinator,
 ) -> None:
     """Turn on with brightness=128 writes ratio=50 then state=True."""
-    light = RenogyLight(
-        mock_coordinator, MOCK_BOX_DEVICE, FIELD_LIGHT_STATE, FIELD_LIGHT_RATIO
-    )
+    light = RenogyLight(mock_coordinator, MOCK_BOX_DEVICE, FIELD_LIGHT_STATE, FIELD_LIGHT_RATIO)
     light.hass = hass
 
     await light.async_turn_on(**{ATTR_BRIGHTNESS: 128})
@@ -51,9 +48,7 @@ async def test_light_turn_off(
     mock_coordinator,
 ) -> None:
     """Turn off writes state=False."""
-    light = RenogyLight(
-        mock_coordinator, MOCK_BOX_DEVICE, FIELD_LIGHT_STATE, FIELD_LIGHT_RATIO
-    )
+    light = RenogyLight(mock_coordinator, MOCK_BOX_DEVICE, FIELD_LIGHT_STATE, FIELD_LIGHT_RATIO)
     light.hass = hass
 
     await light.async_turn_off()
@@ -65,9 +60,7 @@ async def test_light_brightness_from_ratio_push(
     mock_coordinator,
 ) -> None:
     """Brightness property reflects incoming ratio telemetry."""
-    light = RenogyLight(
-        mock_coordinator, MOCK_BOX_DEVICE, FIELD_LIGHT_STATE, FIELD_LIGHT_RATIO
-    )
+    light = RenogyLight(mock_coordinator, MOCK_BOX_DEVICE, FIELD_LIGHT_STATE, FIELD_LIGHT_RATIO)
     light.hass = hass
     light.async_write_ha_state = MagicMock()
 
@@ -83,9 +76,7 @@ async def test_light_name_from_user_label(
     mock_coordinator,
 ) -> None:
     """Light name uses user-assigned label."""
-    light = RenogyLight(
-        mock_coordinator, MOCK_BOX_DEVICE, FIELD_LIGHT_STATE, FIELD_LIGHT_RATIO
-    )
+    light = RenogyLight(mock_coordinator, MOCK_BOX_DEVICE, FIELD_LIGHT_STATE, FIELD_LIGHT_RATIO)
     assert light.name == "Bedroom Light"
 
 
@@ -94,13 +85,11 @@ async def test_light_seeds_state_and_brightness_from_coordinator_cache(
     mock_coordinator,
 ) -> None:
     """Cached live state + ratio values seed is_on/brightness immediately."""
-    mock_coordinator.get_value.side_effect = lambda sp: {
+    mock_coordinator.get_value.side_effect = {
         FIELD_LIGHT_STATE.sp: True,
         FIELD_LIGHT_RATIO.sp: 50,
-    }.get(sp)
-    light = RenogyLight(
-        mock_coordinator, MOCK_BOX_DEVICE, FIELD_LIGHT_STATE, FIELD_LIGHT_RATIO
-    )
+    }.get
+    light = RenogyLight(mock_coordinator, MOCK_BOX_DEVICE, FIELD_LIGHT_STATE, FIELD_LIGHT_RATIO)
     light.hass = hass
     light.entity_id = "light.test_bedroom"
     light.async_write_ha_state = MagicMock()

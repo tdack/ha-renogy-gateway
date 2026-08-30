@@ -4,13 +4,13 @@ import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
-
-from custom_components.renogy_gateway.api.models import FieldSpec, RenogyDevice
-from custom_components.renogy_gateway.coordinator import RenogyCoordinator
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
-from .conftest import MOCK_BOX_DEVICE, MOCK_CHARGER_DEVICE, FIELD_CHARGE_VOLTAGE
+from custom_components.renogy_gateway.api.models import FieldSpec, RenogyDevice
+from custom_components.renogy_gateway.coordinator import RenogyCoordinator
+
+from .conftest import FIELD_CHARGE_VOLTAGE, MOCK_BOX_DEVICE, MOCK_CHARGER_DEVICE
 
 
 async def test_async_write_rejects_blacklisted_sp(
@@ -33,9 +33,7 @@ async def test_async_write_rejects_blacklisted_sp(
     coordinator._rtm.write = AsyncMock()
 
     with pytest.raises(HomeAssistantError):
-        await coordinator.async_write(
-            f"{device.did_str}/distribution_box.relay_3.state", True
-        )
+        await coordinator.async_write(f"{device.did_str}/distribution_box.relay_3.state", True)
     coordinator._rtm.write.assert_not_awaited()
 
 
@@ -49,9 +47,7 @@ async def test_async_write_allows_non_blacklisted_sp(
     coordinator.devices = {MOCK_BOX_DEVICE.did_str: MOCK_BOX_DEVICE}
     coordinator._rtm.write = AsyncMock(return_value={"code": 0})
 
-    await coordinator.async_write(
-        f"{MOCK_BOX_DEVICE.did_str}/distribution_box.relay_3.state", True
-    )
+    await coordinator.async_write(f"{MOCK_BOX_DEVICE.did_str}/distribution_box.relay_3.state", True)
     coordinator._rtm.write.assert_awaited_once()
 
 
@@ -151,7 +147,10 @@ async def test_drop_phantom_instances_removes_dead_slots(
     hass: HomeAssistant,
     mock_config_entry,
 ) -> None:
-    """Instance slots with no live seeded value are dropped; live ones and non-instance fields are kept."""
+    """Instance slots with no live seeded value are dropped.
+
+    Live ones, and non-instance fields, are kept.
+    """
     mock_config_entry.add_to_hass(hass)
     coordinator = RenogyCoordinator(hass, mock_config_entry)
 
@@ -255,7 +254,14 @@ async def test_merge_devices_keeps_prior_fields_on_empty_rediscovery(
         sku="s",
         name="Shunt 300A",
         online=True,
-        fields=[FieldSpec(sp="123/shunt.main_battery_soc", name="main_battery_soc", field_type=3, ops=6)],
+        fields=[
+            FieldSpec(
+                sp="123/shunt.main_battery_soc",
+                name="main_battery_soc",
+                field_type=3,
+                ops=6,
+            )
+        ],
     )
     coordinator.devices = {"123": prior_device}
 
@@ -328,7 +334,12 @@ async def test_merge_devices_does_not_merge_across_pid_change(
     old_field = FieldSpec(sp="123/shunt.old", name="old", field_type=3, ops=6)
     coordinator.devices = {
         "123": RenogyDevice(
-            did_str="123", pid="old-pid", sku="s", name="n", online=True, fields=[old_field]
+            did_str="123",
+            pid="old-pid",
+            sku="s",
+            name="n",
+            online=True,
+            fields=[old_field],
         )
     }
     fresh_device = RenogyDevice(
@@ -384,9 +395,7 @@ async def test_reconnect_success_marks_available(
     coordinator.register_availability_callback(availability_calls.append)
     coordinator._rtm.disconnect = AsyncMock()
     coordinator._connect_and_discover = AsyncMock()
-    monkeypatch.setattr(
-        "custom_components.renogy_gateway.coordinator.RTM_RECONNECT_DELAY_MIN", 0
-    )
+    monkeypatch.setattr("custom_components.renogy_gateway.coordinator.RTM_RECONNECT_DELAY_MIN", 0)
 
     coordinator.schedule_reconnect()
     await coordinator._reconnect_task

@@ -14,3 +14,16 @@ jobs:
           python-version: "3.13"
       - run: pip install -r requirements_test.txt
       - run: pytest
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      # Correctness + HA conventions; ruff-format owns layout. Config and the
+      # reasoning for each ignored rule live in pyproject.toml.
+      - run: pip install ruff==0.15.19
+      - run: ruff check .
+      - run: ruff format --check .

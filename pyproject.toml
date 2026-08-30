@@ -2,3 +2,39 @@
 testpaths = ["tests"]
 asyncio_mode = "auto"
 pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py313"
+# Matches the code as written: only 7 lines exceeded 100 before this landed,
+# vs 45 over ruff's default 88. Chosen to enforce the existing style rather
+# than trigger a repo-wide rewrap.
+line-length = 100
+# .claude/ holds local agent tooling, not shipped integration code.
+extend-exclude = [".claude"]
+
+[tool.ruff.lint]
+# Home Assistant's own core rule set, trimmed to what applies to a custom
+# component. Correctness and HA conventions — formatting is ruff-format's job.
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "ASYNC", "PL", "SLF", "TRY", "D"]
+ignore = [
+    "D203",   # conflicts with D211
+    "D213",   # conflicts with D212
+    "TRY003", # long messages in raises — the codebase deliberately explains why
+    "PLR0913",
+    "PLR2004",
+    # Complexity limits would demand refactors of already-reviewed protocol
+    # code (discovery resolution, entity classification). Out of scope for a
+    # lint pass; revisit deliberately if those functions grow further.
+    "PLR0911",
+    "PLR0912",
+    "PLR0915",
+    # A module-level cache guarded by a deliberate global — see its comment.
+    "PLW0603",
+    # RenogyRTM._call takes an explicit timeout because each protocol op has a
+    # different budget; HA's "use asyncio.timeout at the call site" guidance
+    # does not fit a correlated request/response helper.
+    "ASYNC109",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["D", "SLF", "PLR2004", "TRY"]

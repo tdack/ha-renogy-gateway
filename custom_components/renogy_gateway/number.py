@@ -22,9 +22,7 @@ def _is_light_ratio(field: FieldSpec, device: RenogyDevice) -> bool:
     if not field.sp.endswith(".ratio"):
         return False
     state_sp = field.sp.rsplit(".", 1)[0] + ".state"
-    return any(
-        f.sp == state_sp and f.writable and f.field_type == 1 for f in device.fields
-    )
+    return any(f.sp == state_sp and f.writable and f.field_type == 1 for f in device.fields)
 
 
 def _is_number(field: FieldSpec, device: RenogyDevice) -> bool:

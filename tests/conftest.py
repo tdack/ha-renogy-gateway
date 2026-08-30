@@ -4,6 +4,8 @@ from collections.abc import Generator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from homeassistant.const import CONF_ACCESS_TOKEN, CONF_EMAIL, CONF_PASSWORD
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.renogy_gateway.api.models import (
     FieldSpec,
@@ -20,9 +22,6 @@ from custom_components.renogy_gateway.const import (
     CONF_RTM_TOKEN,
     DOMAIN,
 )
-from homeassistant.const import CONF_ACCESS_TOKEN, CONF_EMAIL, CONF_PASSWORD
-
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 MOCK_EMAIL = "test@example.com"
 MOCK_PASSWORD = "password123"

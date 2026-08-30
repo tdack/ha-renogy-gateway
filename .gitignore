@@ -11,4 +11,6 @@ venv/
 htmlcov/
 dist/
 build/
-docs/plans
+docs/plans/
+docs/review/
+docs/REVIEW-*.md

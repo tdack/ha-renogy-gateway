@@ -4,6 +4,8 @@ from collections.abc import Generator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from homeassistant.core import HomeAssistant
+from homeassistant.data_entry_flow import FlowResultType
 
 from custom_components.renogy_gateway.api.auth import (
     RenogyAuthError,
@@ -11,8 +13,6 @@ from custom_components.renogy_gateway.api.auth import (
 )
 from custom_components.renogy_gateway.api.models import GatewayInfo
 from custom_components.renogy_gateway.const import DOMAIN
-from homeassistant.core import HomeAssistant
-from homeassistant.data_entry_flow import FlowResultType
 
 from .conftest import (
     MOCK_EMAIL,
@@ -22,9 +22,7 @@ from .conftest import (
     MOCK_TOKENS,
 )
 
-SINGLE_GATEWAY = [
-    GatewayInfo(did_str=MOCK_GATEWAY_ID, name=MOCK_GATEWAY_NAME, online=True)
-]
+SINGLE_GATEWAY = [GatewayInfo(did_str=MOCK_GATEWAY_ID, name=MOCK_GATEWAY_NAME, online=True)]
 
 MULTI_GATEWAYS = [
     GatewayInfo(did_str=MOCK_GATEWAY_ID, name=MOCK_GATEWAY_NAME, online=True),
@@ -36,12 +34,8 @@ MULTI_GATEWAYS = [
 def mock_auth_and_rest() -> Generator[tuple]:
     """Patch RenogyAuth.login and RenogyREST.get_gateways for all tests."""
     with (
-        patch(
-            "custom_components.renogy_gateway.config_flow.RenogyAuth"
-        ) as mock_auth_cls,
-        patch(
-            "custom_components.renogy_gateway.config_flow.RenogyREST"
-        ) as mock_rest_cls,
+        patch("custom_components.renogy_gateway.config_flow.RenogyAuth") as mock_auth_cls,
+        patch("custom_components.renogy_gateway.config_flow.RenogyREST") as mock_rest_cls,
     ):
         mock_auth = mock_auth_cls.return_value
         mock_auth.login = AsyncMock(return_value=MOCK_TOKENS)
@@ -59,9 +53,7 @@ async def test_single_gateway_creates_entry(
     mock_auth_and_rest: tuple,
 ) -> None:
     """Happy path: one gateway → entry created without selection step."""
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": "user"}
-    )
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "user"
 
@@ -86,9 +78,7 @@ async def test_multiple_gateways_shows_selection(
     _, mock_rest = mock_auth_and_rest
     mock_rest.get_gateways = AsyncMock(return_value=MULTI_GATEWAYS)
 
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": "user"}
-    )
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
         {"email": MOCK_EMAIL, "password": MOCK_PASSWORD},
@@ -113,9 +103,7 @@ async def test_invalid_credentials_shows_error(
     mock_auth, _ = mock_auth_and_rest
     mock_auth.login = AsyncMock(side_effect=RenogyAuthError("bad creds"))
 
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": "user"}
-    )
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
         {"email": MOCK_EMAIL, "password": "wrong"},
@@ -132,9 +120,7 @@ async def test_connection_error_shows_error(
     mock_auth, _ = mock_auth_and_rest
     mock_auth.login = AsyncMock(side_effect=RenogyConnectionError("timeout"))
 
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": "user"}
-    )
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
         {"email": MOCK_EMAIL, "password": MOCK_PASSWORD},
@@ -150,9 +136,7 @@ async def test_duplicate_entry_aborted(
 ) -> None:
     """Duplicate unique_id → abort."""
     # First entry
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": "user"}
-    )
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
         {"email": MOCK_EMAIL, "password": MOCK_PASSWORD},
@@ -161,9 +145,7 @@ async def test_duplicate_entry_aborted(
     assert result["type"] is FlowResultType.CREATE_ENTRY
 
     # Second attempt with same credentials
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": "user"}
-    )
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
         {"email": MOCK_EMAIL, "password": MOCK_PASSWORD},

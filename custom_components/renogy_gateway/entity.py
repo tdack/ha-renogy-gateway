@@ -58,16 +58,12 @@ class RenogyBaseEntity(Entity):
         cached = self._coordinator.get_value(self._field.sp)
         if cached is not None:
             self._value = cached
-        self._coordinator.register_telemetry_callback(
-            self._field.sp, self._handle_telemetry
-        )
+        self._coordinator.register_telemetry_callback(self._field.sp, self._handle_telemetry)
         self._coordinator.register_availability_callback(self._handle_availability)
 
     async def async_will_remove_from_hass(self) -> None:
         """Unregister callbacks when entity is removed."""
-        self._coordinator.unregister_telemetry_callback(
-            self._field.sp, self._handle_telemetry
-        )
+        self._coordinator.unregister_telemetry_callback(self._field.sp, self._handle_telemetry)
         self._coordinator.unregister_availability_callback(self._handle_availability)
 
     @callback
@@ -85,9 +81,11 @@ class RenogyBaseEntity(Entity):
 
 
 class RenogySceneEntity(Entity):
-    """Base class for scene entities (button/switch), keyed by scene id
-    rather than a field sp — scenes come from REST CRUD, not the schema-
-    driven field pipeline (PROTOCOL.md §8)."""
+    """Base class for scene entities (button/switch), keyed by scene id.
+
+    Scenes come from REST CRUD rather than a field sp, so they sit outside the
+    schema-driven field pipeline (PROTOCOL.md §8).
+    """
 
     _attr_has_entity_name = True
     _attr_should_poll = False

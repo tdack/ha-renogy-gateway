@@ -1,11 +1,10 @@
 """Config flow for the Renogy Gateway integration."""
 
-from collections.abc import Mapping
 import logging
+from collections.abc import Mapping
 from typing import Any
 
 import voluptuous as vol
-
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_ACCESS_TOKEN, CONF_EMAIL, CONF_PASSWORD
 from homeassistant.helpers import aiohttp_client
@@ -45,9 +44,7 @@ class RenogyGatewayConfigFlow(ConfigFlow, domain=DOMAIN):
         self._tokens: TokenSet | None = None
         self._gateways: list[GatewayInfo] = []
 
-    async def async_step_user(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
+    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Handle the initial credential entry step."""
         errors: dict[str, str] = {}
 
@@ -80,23 +77,17 @@ class RenogyGatewayConfigFlow(ConfigFlow, domain=DOMAIN):
         """Let the user choose which gateway to add when multiple are present."""
         if user_input is not None:
             selected_id = user_input[CONF_GATEWAY_ID]
-            gateway = next(
-                (g for g in self._gateways if g.did_str == selected_id), None
-            )
+            gateway = next((g for g in self._gateways if g.did_str == selected_id), None)
             if gateway:
                 return await self._create_entry(gateway)
 
         gateway_options = {g.did_str: g.name for g in self._gateways}
         return self.async_show_form(
             step_id="select_gateway",
-            data_schema=vol.Schema(
-                {vol.Required(CONF_GATEWAY_ID): vol.In(gateway_options)}
-            ),
+            data_schema=vol.Schema({vol.Required(CONF_GATEWAY_ID): vol.In(gateway_options)}),
         )
 
-    async def async_step_reauth(
-        self, entry_data: Mapping[str, Any]
-    ) -> ConfigFlowResult:
+    async def async_step_reauth(self, entry_data: Mapping[str, Any]) -> ConfigFlowResult:
         """Handle re-authentication (e.g. after token expiry)."""
         return await self.async_step_reauth_confirm()
 
@@ -155,8 +146,8 @@ class RenogyGatewayConfigFlow(ConfigFlow, domain=DOMAIN):
         except RenogyAuthError as err:
             _LOGGER.debug("Renogy auth error: %s", err)
             return None, None, "invalid_auth"
-        except RenogyConnectionError as err:
-            _LOGGER.error("Renogy connection error during login: %s", err)
+        except RenogyConnectionError:
+            _LOGGER.exception("Renogy connection error during login")
             return None, None, "cannot_connect"
         except Exception:
             _LOGGER.exception("Unexpected error during Renogy login")
@@ -165,8 +156,8 @@ class RenogyGatewayConfigFlow(ConfigFlow, domain=DOMAIN):
         rest = RenogyREST(session, auth)
         try:
             gateways = await rest.get_gateways()
-        except RenogyConnectionError as err:
-            _LOGGER.error("Renogy connection error fetching gateways: %s", err)
+        except RenogyConnectionError:
+            _LOGGER.exception("Renogy connection error fetching gateways")
             return None, None, "cannot_connect"
         except Exception:
             _LOGGER.exception("Unexpected error fetching gateways")

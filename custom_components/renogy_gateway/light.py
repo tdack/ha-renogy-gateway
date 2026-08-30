@@ -7,7 +7,7 @@ single HA light entity with brightness support.
 
 import contextlib
 import math
-from typing import Any
+from typing import Any, ClassVar
 
 from homeassistant.components.light import ATTR_BRIGHTNESS, ColorMode, LightEntity
 from homeassistant.core import HomeAssistant, callback
@@ -58,7 +58,7 @@ class RenogyLight(RenogyBaseEntity, RestoreEntity, LightEntity):
     """A dimmable DC output channel exposed as an HA light."""
 
     _attr_color_mode = ColorMode.BRIGHTNESS
-    _attr_supported_color_modes = {ColorMode.BRIGHTNESS}
+    _attr_supported_color_modes: ClassVar[set[ColorMode]] = {ColorMode.BRIGHTNESS}
 
     def __init__(
         self,
@@ -76,9 +76,7 @@ class RenogyLight(RenogyBaseEntity, RestoreEntity, LightEntity):
         """Register callbacks and restore last known state."""
         await super().async_added_to_hass()
         # Also subscribe to the ratio field for brightness updates
-        self._coordinator.register_telemetry_callback(
-            self._ratio_field.sp, self._handle_ratio
-        )
+        self._coordinator.register_telemetry_callback(self._ratio_field.sp, self._handle_ratio)
         cached_ratio = self._coordinator.get_value(self._ratio_field.sp)
         if cached_ratio is not None:
             with contextlib.suppress(TypeError, ValueError):
@@ -92,17 +90,14 @@ class RenogyLight(RenogyBaseEntity, RestoreEntity, LightEntity):
                 self._value = last_state.state == "on"
             if (
                 self._ratio_value is None
-                and (brightness := last_state.attributes.get(ATTR_BRIGHTNESS))
-                is not None
+                and (brightness := last_state.attributes.get(ATTR_BRIGHTNESS)) is not None
             ):
                 self._ratio_value = round(int(brightness) / 255 * 100)
 
     async def async_will_remove_from_hass(self) -> None:
         """Unregister all callbacks."""
         await super().async_will_remove_from_hass()
-        self._coordinator.unregister_telemetry_callback(
-            self._ratio_field.sp, self._handle_ratio
-        )
+        self._coordinator.unregister_telemetry_callback(self._ratio_field.sp, self._handle_ratio)
 
     @callback
     def _handle_ratio(self, value: Any) -> None:

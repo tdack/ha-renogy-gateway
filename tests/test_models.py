@@ -17,9 +17,7 @@ def test_display_name_user_label_wins_over_everything() -> None:
 
 def test_display_name_falls_back_to_curated_label() -> None:
     """charger.max_current resolves to the curated English label."""
-    field = FieldSpec(
-        sp="123/charger.max_current", name="max_current", field_type=3, ops=7
-    )
+    field = FieldSpec(sp="123/charger.max_current", name="max_current", field_type=3, ops=7)
     assert field.display_name == "Max charging current"
 
 

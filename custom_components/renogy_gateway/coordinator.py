@@ -1,15 +1,14 @@
 """Renogy Gateway coordinator — manages the RTM connection and entity state."""
 
 import asyncio
-from collections.abc import Callable
 import contextlib
-from dataclasses import replace
 import logging
 import re
+from collections.abc import Callable
+from dataclasses import replace
 from typing import Any
 
 import aiohttp
-
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_ACCESS_TOKEN
 from homeassistant.core import HomeAssistant, callback
@@ -43,6 +42,7 @@ _INSTANCE_PATTERNS = (
     re.compile(r"^tp_state_\d+$"),
 )
 
+
 def _validate_write_value(sp: str, field: FieldSpec, value: Any) -> None:
     """Validate a value against the field's schema type and bounds before writing.
 
@@ -56,29 +56,18 @@ def _validate_write_value(sp: str, field: FieldSpec, value: Any) -> None:
 
     if field.field_type == 1:  # bool
         if not isinstance(value, bool):
-            raise HomeAssistantError(
-                f"{sp} expects boolean, got {type(value).__name__}"
-            )
+            raise HomeAssistantError(f"{sp} expects boolean, got {type(value).__name__}")
     elif field.field_type == 2:  # int
         if isinstance(value, bool) or not isinstance(value, int):
-            raise HomeAssistantError(
-                f"{sp} expects integer, got {type(value).__name__}"
-            )
-    elif field.field_type == 3:  # float
-        if not is_number:
-            raise HomeAssistantError(
-                f"{sp} expects number, got {type(value).__name__}"
-            )
+            raise HomeAssistantError(f"{sp} expects integer, got {type(value).__name__}")
+    elif field.field_type == 3 and not is_number:  # float
+        raise HomeAssistantError(f"{sp} expects number, got {type(value).__name__}")
 
     if is_number:
         if field.min_value is not None and value < field.min_value:
-            raise HomeAssistantError(
-                f"{sp}: value {value} below min {field.min_value}"
-            )
+            raise HomeAssistantError(f"{sp}: value {value} below min {field.min_value}")
         if field.max_value is not None and value > field.max_value:
-            raise HomeAssistantError(
-                f"{sp}: value {value} above max {field.max_value}"
-            )
+            raise HomeAssistantError(f"{sp}: value {value} above max {field.max_value}")
 
 
 type RenogyConfigEntry = ConfigEntry[RenogyCoordinator]
@@ -95,9 +84,7 @@ class RenogyCoordinator:
         """Initialize the coordinator, auth, RTM client, and token persistence."""
         self._hass = hass
         self._entry = entry
-        self._session: aiohttp.ClientSession = aiohttp_client.async_get_clientsession(
-            hass
-        )
+        self._session: aiohttp.ClientSession = aiohttp_client.async_get_clientsession(hass)
 
         async def _persist_tokens(tokens: TokenSet) -> None:
             hass.config_entries.async_update_entry(
@@ -177,9 +164,7 @@ class RenogyCoordinator:
         self._rtm.set_telemetry_dispatcher(self._dispatch_telemetry)
 
         self.devices = self._merge_devices(await self._discovery.discover(gateway_id))
-        _LOGGER.debug(
-            "Discovered %d devices behind gateway %s", len(self.devices), gateway_id
-        )
+        _LOGGER.debug("Discovered %d devices behind gateway %s", len(self.devices), gateway_id)
 
         all_fields = [f for device in self.devices.values() for f in device.fields]
 
@@ -248,12 +233,7 @@ class RenogyCoordinator:
         merged: dict[str, RenogyDevice] = {}
         for device in fresh:
             prior = self.devices.get(device.did_str)
-            if (
-                not device.fields
-                and prior is not None
-                and prior.pid == device.pid
-                and prior.fields
-            ):
+            if not device.fields and prior is not None and prior.pid == device.pid and prior.fields:
                 merged[device.did_str] = replace(
                     prior, online=device.online, name=device.name or prior.name
                 )
@@ -285,10 +265,7 @@ class RenogyCoordinator:
             live_fields = [
                 f
                 for fields in by_instance.values()
-                if any(
-                    not f.writable and self._last_values.get(f.sp) is not None
-                    for f in fields
-                )
+                if any(not f.writable and self._last_values.get(f.sp) is not None for f in fields)
                 for f in fields
             ]
             device.fields = other_fields + live_fields
@@ -307,7 +284,7 @@ class RenogyCoordinator:
     # ------------------------------------------------------------------
 
     def _dispatch_telemetry(self, sp: str, value: Any) -> None:
-        """Called by RTM for every op-7 push; routes to registered entity callbacks."""
+        """Route an op-7 telemetry push from RTM to registered entity callbacks."""
         self._last_values[sp] = value
         for cb in self._telemetry_callbacks.get(sp, []):
             try:
@@ -324,16 +301,12 @@ class RenogyCoordinator:
     # ------------------------------------------------------------------
 
     @callback
-    def register_telemetry_callback(
-        self, sp: str, callback_fn: TelemetryCallback
-    ) -> None:
+    def register_telemetry_callback(self, sp: str, callback_fn: TelemetryCallback) -> None:
         """Register an entity callback for a specific topic path."""
         self._telemetry_callbacks.setdefault(sp, []).append(callback_fn)
 
     @callback
-    def unregister_telemetry_callback(
-        self, sp: str, callback_fn: TelemetryCallback
-    ) -> None:
+    def unregister_telemetry_callback(self, sp: str, callback_fn: TelemetryCallback) -> None:
         """Remove a previously registered entity callback."""
         cbs = self._telemetry_callbacks.get(sp, [])
         with contextlib.suppress(ValueError):
@@ -392,8 +365,8 @@ class RenogyCoordinator:
             code = ack.get("code") if ack else None
             if code not in (0, 14):
                 _LOGGER.warning("Write to %s returned unexpected code: %s", sp, code)
-        except (RenogyRTMError, TimeoutError) as err:
-            _LOGGER.error("Write to %s failed: %s", sp, err)
+        except (RenogyRTMError, TimeoutError):
+            _LOGGER.exception("Write to %s failed", sp)
             raise
 
     async def async_run_scene(self, scene_id: str) -> None:
@@ -412,11 +385,9 @@ class RenogyCoordinator:
             ack = await self._rtm.run_scene(scene.gateway_did, int(scene_id))
             code = ack.get("code") if ack else None
             if code not in (0, 14):
-                _LOGGER.warning(
-                    "Run scene %s returned unexpected code: %s", scene_id, code
-                )
-        except (RenogyRTMError, TimeoutError) as err:
-            _LOGGER.error("Run scene %s failed: %s", scene_id, err)
+                _LOGGER.warning("Run scene %s returned unexpected code: %s", scene_id, code)
+        except (RenogyRTMError, TimeoutError):
+            _LOGGER.exception("Run scene %s failed", scene_id)
             raise
 
     async def async_set_scene_open(self, scene_id: str, is_open: bool) -> None:

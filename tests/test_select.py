@@ -2,9 +2,10 @@
 
 from unittest.mock import MagicMock
 
+from homeassistant.core import HomeAssistant
+
 from custom_components.renogy_gateway.api.models import FieldSpec
 from custom_components.renogy_gateway.select import RenogySelect, _is_select
-from homeassistant.core import HomeAssistant
 
 from .conftest import FIELD_SOC_RULE, MOCK_BOX_DEVICE
 

@@ -3,6 +3,40 @@
 All notable changes to this project are documented in this file, generated
 from the tagged release history.
 
+## [0.5.2] - 2026-08-30
+
+Reliability fixes in the auth and connection layers, found by porting the
+review recently done on the sibling `renogy-gateway` project. No new entities
+and no config changes — existing installs pick these up transparently.
+
+- Fix the 401/999 retry never actually retrying with a new token. The retry
+  called `ensure_fresh()`, which only rotates when the access token's own
+  `exp` claim says it is stale — so when the server rejected a token that
+  still looked fresh locally (revocation, clock skew), it was a no-op and the
+  retry re-sent the very token that had just failed. It now forces a rotation.
+- Serialise token rotation behind a lock. Refresh tokens rotate and the server
+  kills the old one on first use, so two concurrent callers could each spend
+  the same token; whichever response landed last was persisted, which could
+  store a **dead** token and leave the integration unable to authenticate until
+  it was reconfigured. Home Assistant runs entity handlers concurrently
+  (`PARALLEL_UPDATES = 0`), so this was reachable.
+- Report a rejected login properly. The API answers HTTP 200 with a failure
+  envelope for a bad password, so reading `data` blind raised `KeyError` and
+  the config flow showed "unknown error" instead of "invalid credentials" —
+  and never offered reauth. Login, token refresh, RTM registration and RTM
+  token rotation now all validate the envelope and surface the server's own
+  message. A partial response can no longer persist a half-formed token pair.
+- Survive a `ping` frame arriving before the RTM connect-ack. The gateway sends
+  bare `ping` text frames unprompted; `json.loads("ping")` raised
+  `JSONDecodeError`, which is not an `aiohttp.ClientError`, so it escaped as an
+  unexpected exception rather than a clean connection error. The connect-ack
+  read now skips pings (answering them), tolerates stray frames, and matches
+  the ack on `sop: 9` — `op: 8` is the *generic* ack, not the connect-ack.
+- Log write and scene failures with `logging.exception`, so the traceback is
+  captured rather than just the message.
+- Add ruff to CI (lint + format check) and 17 regression tests, each confirmed
+  to fail against the code before these fixes.
+
 ## [0.5.1] - 2026-07-06
 
 - Fix the inverter's `battery_type` field (pid `000F003C`) surfacing as a
