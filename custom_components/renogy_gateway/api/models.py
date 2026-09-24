@@ -41,7 +41,12 @@ class FieldSpec:
     min_value: float | None = None
     max_value: float | None = None
     options: list[dict] | None = None
-    """Enum choices: [{key, value}]."""
+    """Enum choices: [{key, value}] — the schema's own, else a curated fallback."""
+    schema_option_keys: frozenset[str] | None = None
+    """Stringified keys of the options the *schema* declares (None if it declares
+    none). Write validation enforces membership of this set only; curated
+    fallback options are presentation, never a write gate — mirroring the
+    sibling core's validateWrite, which enforces schema options only."""
     precision: int = 0
     user_label: str | None = None
     """User-assigned friendly name from userdata_str.config (e.g. 'Bedroom Light')."""

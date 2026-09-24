@@ -3,6 +3,7 @@
 import asyncio
 import contextlib
 import logging
+import math
 import re
 from collections.abc import Callable
 from dataclasses import replace
@@ -42,6 +43,9 @@ _INSTANCE_PATTERNS = (
     re.compile(r"^tp_state_\d+$"),
 )
 
+# Number.MAX_SAFE_INTEGER (2**53 - 1): the canonical core's integer ceiling.
+_MAX_SAFE_INTEGER = 2**53 - 1
+
 
 def _validate_write_value(sp: str, field: FieldSpec, value: Any) -> None:
     """Validate a value against the field's schema type and bounds before writing.
@@ -49,10 +53,21 @@ def _validate_write_value(sp: str, field: FieldSpec, value: Any) -> None:
     Mirrors renogy-gateway/packages/core/src/discovery.ts's validateWrite for
     cross-repo consistency. Raises HomeAssistantError with a clear reason;
     callers must check blacklist/writability separately.
+
+    Checks, in order: type (integers within JS's safe-integer range, numbers
+    finite — never NaN/Infinity), membership of the schema-declared options
+    when the field has any (booleans exempt), then min/max.
     """
     from homeassistant.exceptions import HomeAssistantError  # noqa: PLC0415
 
     is_number = isinstance(value, (int, float)) and not isinstance(value, bool)
+
+    # NaN fails every < / > comparison, so the bounds check below can never
+    # catch it, and json.dumps emits a bare NaN/Infinity token that isn't JSON.
+    # HA's number service coerces the string "nan" to float('nan') and its own
+    # min/max check lets it through, so this is reachable from the UI/API.
+    if is_number and not math.isfinite(value):
+        raise HomeAssistantError(f"{sp} expects a finite number, got {value}")
 
     if field.field_type == 1:  # bool
         if not isinstance(value, bool):
@@ -60,8 +75,22 @@ def _validate_write_value(sp: str, field: FieldSpec, value: Any) -> None:
     elif field.field_type == 2:  # int
         if isinstance(value, bool) or not isinstance(value, int):
             raise HomeAssistantError(f"{sp} expects integer, got {type(value).__name__}")
+        # Python ints are unbounded; the canonical core accepts only JS safe
+        # integers, and anything wider can't round-trip through the gateway.
+        if abs(value) > _MAX_SAFE_INTEGER:
+            raise HomeAssistantError(f"{sp} expects integer, got out-of-range {value}")
     elif field.field_type == 3 and not is_number:  # float
         raise HomeAssistantError(f"{sp} expects number, got {type(value).__name__}")
+
+    # A schema enum is the complete set of legal values: an in-range integer
+    # that isn't one of the options (an undefined mode code) is still invalid.
+    # Only schema-declared options gate writes — curated fallback options are
+    # presentation. Booleans are exempt: already two-valued, and their option
+    # keys needn't be spelled "true"/"false".
+    keys = field.schema_option_keys
+    if field.field_type != 1 and keys and str(value) not in keys:
+        allowed = ", ".join(sorted(keys))
+        raise HomeAssistantError(f"{sp}: {value!r} is not one of its options ({allowed})")
 
     if is_number:
         if field.min_value is not None and value < field.min_value:

@@ -364,7 +364,13 @@ class RenogyDiscovery:
             ops &= ~1  # strip the write bit — a reading, not a setting
 
         sp = f"{did_str}/{namespace}.{full_name}"
-        options = sp_dict.get("options") or CURATED_OPTIONS.get(f"{namespace}.{full_name}")
+        schema_options = sp_dict.get("options") or None
+        options = schema_options or CURATED_OPTIONS.get(f"{namespace}.{full_name}")
+        schema_option_keys = (
+            frozenset(str(o["key"]) for o in schema_options if isinstance(o, dict) and "key" in o)
+            if schema_options
+            else None
+        )
         return [
             FieldSpec(
                 sp=sp,
@@ -375,6 +381,7 @@ class RenogyDiscovery:
                 min_value=_to_float(sp_dict.get("min")),
                 max_value=_to_float(sp_dict.get("max")),
                 options=options,
+                schema_option_keys=schema_option_keys or None,
                 precision=int(sp_dict.get("precision") or 0),
             )
         ]

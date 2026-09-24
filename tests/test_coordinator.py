@@ -143,6 +143,114 @@ async def test_async_write_allows_valid_value_within_bounds(
     coordinator._rtm.write.assert_awaited_once_with(FIELD_CHARGE_VOLTAGE.sp, 13.5)
 
 
+def _writable_device(*fields: FieldSpec) -> RenogyDevice:
+    return RenogyDevice(did_str="123", pid="p", sku="s", name="n", online=True, fields=list(fields))
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+async def test_async_write_rejects_non_finite_numbers(
+    hass: HomeAssistant,
+    mock_config_entry,
+    bad: float,
+) -> None:
+    """NaN passes every bounds comparison and ±Infinity passes an unbounded
+    field; neither may reach the gateway (json.dumps would emit a non-JSON token)."""
+    mock_config_entry.add_to_hass(hass)
+    coordinator = RenogyCoordinator(hass, mock_config_entry)
+    bounded = FieldSpec(
+        sp="123/charger.v", name="v", field_type=3, ops=7, min_value=0.0, max_value=20.0
+    )
+    unbounded = FieldSpec(sp="123/charger.w", name="w", field_type=3, ops=7)
+    coordinator.devices = {"123": _writable_device(bounded, unbounded)}
+    coordinator._rtm.write = AsyncMock()
+
+    for field in (bounded, unbounded):
+        with pytest.raises(HomeAssistantError, match="finite"):
+            await coordinator.async_write(field.sp, bad)
+    coordinator._rtm.write.assert_not_awaited()
+
+
+async def test_async_write_rejects_integer_beyond_safe_range(
+    hass: HomeAssistant,
+    mock_config_entry,
+) -> None:
+    """An unbounded integer field accepts only integers the canonical core
+    (JS safe-integer range) would accept."""
+    mock_config_entry.add_to_hass(hass)
+    coordinator = RenogyCoordinator(hass, mock_config_entry)
+    field = FieldSpec(sp="123/charger.n", name="n", field_type=2, ops=7)
+    coordinator.devices = {"123": _writable_device(field)}
+    coordinator._rtm.write = AsyncMock(return_value={"code": 0})
+
+    for bad in (10**300, 2**53, -(2**53)):
+        with pytest.raises(HomeAssistantError, match="out-of-range"):
+            await coordinator.async_write(field.sp, bad)
+    coordinator._rtm.write.assert_not_awaited()
+
+    await coordinator.async_write(field.sp, 2**53 - 1)
+    coordinator._rtm.write.assert_awaited_once()
+
+
+async def test_async_write_enforces_schema_options(
+    hass: HomeAssistant,
+    mock_config_entry,
+) -> None:
+    """An in-range value that isn't one of the schema's options is refused;
+    a listed option passes."""
+    mock_config_entry.add_to_hass(hass)
+    coordinator = RenogyCoordinator(hass, mock_config_entry)
+    field = FieldSpec(
+        sp="123/analog_input_r.ai_1.mode",
+        name="ai_1.mode",
+        field_type=2,
+        ops=7,
+        min_value=0.0,
+        max_value=5.0,
+        options=[{"key": 0, "value": "Off"}, {"key": 2, "value": "Fresh"}],
+        schema_option_keys=frozenset({"0", "2"}),
+    )
+    coordinator.devices = {"123": _writable_device(field)}
+    coordinator._rtm.write = AsyncMock(return_value={"code": 0})
+
+    with pytest.raises(HomeAssistantError, match="not one of its options"):
+        await coordinator.async_write(field.sp, 1)
+    coordinator._rtm.write.assert_not_awaited()
+
+    await coordinator.async_write(field.sp, 2)
+    coordinator._rtm.write.assert_awaited_once_with(field.sp, 2)
+
+
+async def test_async_write_ignores_curated_options_and_boolean_options(
+    hass: HomeAssistant,
+    mock_config_entry,
+) -> None:
+    """Curated (non-schema) options don't gate writes, and booleans are exempt
+    from option membership even when the schema lists keys for them."""
+    mock_config_entry.add_to_hass(hass)
+    coordinator = RenogyCoordinator(hass, mock_config_entry)
+    curated = FieldSpec(
+        sp="123/charger.battery_type",
+        name="battery_type",
+        field_type=2,
+        ops=7,
+        options=[{"key": 0, "value": "User-defined"}],
+    )
+    boolean = FieldSpec(
+        sp="123/relay.state",
+        name="state",
+        field_type=1,
+        ops=7,
+        options=[{"key": 0, "value": "Off"}, {"key": 1, "value": "On"}],
+        schema_option_keys=frozenset({"0", "1"}),
+    )
+    coordinator.devices = {"123": _writable_device(curated, boolean)}
+    coordinator._rtm.write = AsyncMock(return_value={"code": 0})
+
+    await coordinator.async_write(curated.sp, 7)
+    await coordinator.async_write(boolean.sp, True)
+    assert coordinator._rtm.write.await_count == 2
+
+
 async def test_drop_phantom_instances_removes_dead_slots(
     hass: HomeAssistant,
     mock_config_entry,

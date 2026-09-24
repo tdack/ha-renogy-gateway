@@ -3,6 +3,22 @@
 All notable changes to this project are documented in this file, generated
 from the tagged release history.
 
+## [Unreleased]
+
+- Harden write validation, ported from the sibling `renogy-gateway` core's
+  `validateWrite` (2026-09-24). Number fields now refuse `NaN` and
+  `±Infinity` — `NaN` fails every bounds comparison, so it slipped past the
+  min/max check, and Home Assistant's number service coerces the string
+  `"nan"` into one. Integer fields refuse values beyond the JS safe-integer
+  range the canonical core accepts. Fields whose *schema* declares `options`
+  now accept only one of those keys, so an in-range but undefined mode code is
+  refused; booleans are exempt, and curated fallback options (e.g.
+  `battery_type`'s) remain presentation only and are not enforced.
+- Add a regression test pinning that user-assigned channel names are shown
+  verbatim, even when they look like a schema leaf ("Power") or aren't ASCII.
+  The sibling's dashboard and MQTT bridge had this bug; this integration
+  never did.
+
 ## [0.5.2] - 2026-08-30
 
 Reliability fixes in the auth and connection layers, found by porting the

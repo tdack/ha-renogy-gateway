@@ -199,6 +199,22 @@ async def test_schema_supplied_options_are_not_overridden_by_curated_map() -> No
     fields = await discovery._get_fields("123", "charger")
 
     assert fields[0].options == [{"key": 9, "value": "Custom Schema Option"}]
+    assert fields[0].schema_option_keys == frozenset({"9"})
+
+
+async def test_curated_options_are_not_recorded_as_schema_option_keys() -> None:
+    """Curated fallback options are presentation only: they must not become
+    the write gate (the sibling core enforces schema options only)."""
+    rtm = MagicMock()
+    rtm.rpc = AsyncMock(
+        return_value={"sps": [{"name": "battery_type", "type": 2, "ops": [1, 2, 4]}]}
+    )
+
+    discovery = RenogyDiscovery(rtm)
+    fields = await discovery._get_fields("123", "charger")
+
+    assert fields[0].options  # curated fallback applied
+    assert fields[0].schema_option_keys is None
 
 
 async def test_battery_type_forced_readonly_on_inverter_pid() -> None:
