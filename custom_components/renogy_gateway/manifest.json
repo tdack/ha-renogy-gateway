@@ -13,5 +13,5 @@
     "custom_components.renogy_gateway"
   ],
   "requirements": [],
-  "version": "0.5.2"
+  "version": "0.5.3"
 }

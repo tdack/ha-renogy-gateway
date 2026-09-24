@@ -3,7 +3,7 @@
 All notable changes to this project are documented in this file, generated
 from the tagged release history.
 
-## [Unreleased]
+## [0.5.3] - 2026-09-24
 
 - Harden write validation, ported from the sibling `renogy-gateway` core's
   `validateWrite` (2026-09-24). Number fields now refuse `NaN` and
